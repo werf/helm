@@ -6,9 +6,23 @@ Package release is a generated protocol buffer package.
 
 It is generated from these files:
 	hapi/release/hook.proto
+	hapi/release/info.proto
+	hapi/release/log_chunk.proto
+	hapi/release/log_line.proto
+	hapi/release/release.proto
+	hapi/release/status.proto
+	hapi/release/test_run.proto
+	hapi/release/test_suite.proto
 
 It has these top-level messages:
 	Hook
+	Info
+	LogChunk
+	LogLine
+	Release
+	Status
+	TestRun
+	TestSuite
 */
 package release
 

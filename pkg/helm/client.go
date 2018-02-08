@@ -17,6 +17,7 @@ limitations under the License.
 package helm // import "k8s.io/helm/pkg/helm"
 
 import (
+	"fmt"
 	"io"
 	"time"
 
@@ -349,7 +350,23 @@ func (h *Client) install(ctx context.Context, req *rls.InstallReleaseRequest) (*
 	defer c.Close()
 
 	rlc := rls.NewReleaseServiceClient(c)
-	return rlc.InstallRelease(ctx, req)
+
+	/*
+	 * Show logs here
+	 */
+
+	stream, err := rlc.InstallRelease(ctx, req)
+	for {
+		resp, err := stream.Recv()
+		if err == io.EOF {
+			return resp, nil
+		}
+		if err != nil {
+			return resp, err
+		}
+
+		fmt.Println("hw!\n")
+	}
 }
 
 // Executes tiller.UninstallRelease RPC.

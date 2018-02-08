@@ -1,0 +1,10 @@
+syntax = "proto3";
+
+package hapi.release;
+
+option go_package = "release";
+
+message LogLine {
+	string timestamp = 1;
+	string data = 2;
+}

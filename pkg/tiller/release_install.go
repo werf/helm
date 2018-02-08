@@ -18,9 +18,10 @@ package tiller
 
 import (
 	"fmt"
+	// "io"
 	"strings"
 
-	ctx "golang.org/x/net/context"
+	// ctx "golang.org/x/net/context"
 
 	"k8s.io/helm/pkg/chartutil"
 	"k8s.io/helm/pkg/hooks"
@@ -31,7 +32,7 @@ import (
 )
 
 // InstallRelease installs a release and stores the release record.
-func (s *ReleaseServer) InstallRelease(c ctx.Context, req *services.InstallReleaseRequest) (*services.InstallReleaseResponse, error) {
+func (s *ReleaseServer) InstallRelease(req *services.InstallReleaseRequest, stream services.ReleaseService_InstallReleaseServer) error {
 	s.Log("preparing install for %s", req.Name)
 	rel, err := s.prepareRelease(req)
 	if err != nil {

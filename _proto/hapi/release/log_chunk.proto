@@ -1,0 +1,11 @@
+syntax = "proto3";
+
+package hapi.release;
+
+import "hapi/release/log_line.proto";
+
+option go_package = "release";
+
+message LogChunk {
+	repeated LogLine log_lines = 1;
+}

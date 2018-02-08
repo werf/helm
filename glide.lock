@@ -168,7 +168,7 @@ imports:
   subpackages:
   - lru
 - name: github.com/golang/protobuf
-  version: 4bd1920723d7b7c925de087aa32e2187708897f7
+  version: 47eb67eaf5cab63c58956d4d4ce86b03ad5eaa03
   subpackages:
   - proto
   - ptypes
