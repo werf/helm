@@ -44,7 +44,11 @@ func (s *ReleaseServer) InstallRelease(req *services.InstallReleaseRequest, stre
 		if req.DryRun && strings.HasPrefix(err.Error(), "YAML parse error") {
 			err = fmt.Errorf("%s\n%s", err, rel.Manifest)
 		}
-		return res, err
+
+		if sendErr := stream.Send(res); sendErr != nil {
+			return sendErr
+		}
+		return err
 	}
 
 	s.Log("performing install for %s", req.Name)
@@ -52,7 +56,10 @@ func (s *ReleaseServer) InstallRelease(req *services.InstallReleaseRequest, stre
 	if err != nil {
 		s.Log("failed install perform step: %s", err)
 	}
-	return res, err
+	if sendErr := stream.Send(res); sendErr != nil {
+		return sendErr
+	}
+	return err
 }
 
 // prepareRelease builds a release for an install operation.
