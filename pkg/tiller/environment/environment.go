@@ -23,6 +23,7 @@ These dependencies are expressed as interfaces so that alternate implementations
 package environment
 
 import (
+	"fmt"
 	"io"
 	"time"
 
@@ -143,6 +144,8 @@ type KubeClient interface {
 	// WaitAndGetCompletedPodPhase waits up to a timeout until a pod enters a completed phase
 	// and returns said phase (PodSucceeded or PodFailed qualify).
 	WaitAndGetCompletedPodPhase(namespace string, reader io.Reader, timeout time.Duration) (core.PodPhase, error)
+
+	WatchJobTillDone(namespace string, jobName string, reader io.Reader, watchFeed kube.WatchFeed, timeout time.Duration) error
 }
 
 // PrintingKubeClient implements KubeClient, but simply prints the reader to
@@ -173,6 +176,7 @@ func (p *PrintingKubeClient) Delete(ns string, r io.Reader) error {
 
 // WatchUntilReady implements KubeClient WatchUntilReady.
 func (p *PrintingKubeClient) WatchUntilReady(ns string, r io.Reader, timeout int64, shouldWait bool) error {
+	fmt.Printf("HELLO! %s\n", ns)
 	_, err := io.Copy(p.Out, r)
 	return err
 }

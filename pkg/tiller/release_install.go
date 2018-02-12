@@ -25,6 +25,7 @@ import (
 
 	"k8s.io/helm/pkg/chartutil"
 	"k8s.io/helm/pkg/hooks"
+	"k8s.io/helm/pkg/kube"
 	"k8s.io/helm/pkg/proto/hapi/release"
 	"k8s.io/helm/pkg/proto/hapi/services"
 	relutil "k8s.io/helm/pkg/releaseutil"
@@ -52,7 +53,7 @@ func (s *ReleaseServer) InstallRelease(req *services.InstallReleaseRequest, stre
 	}
 
 	s.Log("performing install for %s", req.Name)
-	res, err := s.performRelease(rel, req)
+	res, err := s.performRelease(rel, req, stream)
 	if err != nil {
 		s.Log("failed install perform step: %s", err)
 	}
@@ -140,7 +141,7 @@ func (s *ReleaseServer) prepareRelease(req *services.InstallReleaseRequest) (*re
 }
 
 // performRelease runs a release.
-func (s *ReleaseServer) performRelease(r *release.Release, req *services.InstallReleaseRequest) (*services.InstallReleaseResponse, error) {
+func (s *ReleaseServer) performRelease(r *release.Release, req *services.InstallReleaseRequest, stream services.ReleaseService_InstallReleaseServer) (*services.InstallReleaseResponse, error) {
 	res := &services.InstallReleaseResponse{Release: r}
 
 	if req.DryRun {
@@ -151,7 +152,12 @@ func (s *ReleaseServer) performRelease(r *release.Release, req *services.Install
 
 	// pre-install hooks
 	if !req.DisableHooks {
-		if err := s.execHook(r.Hooks, r.Name, r.Namespace, hooks.PreInstall, req.Timeout); err != nil {
+		handleLogChunk := kube.WriteJobLogChunkFunc(func(chunk *kube.JobLogChunk) error {
+			s.Log("====> %s", chunk)
+			return nil
+		})
+
+		if err := s.execHookWithWatchFeed(r.Hooks, r.Name, r.Namespace, hooks.PreInstall, req.Timeout, handleLogChunk); err != nil {
 			return res, err
 		}
 	} else {
