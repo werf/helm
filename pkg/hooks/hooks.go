@@ -47,6 +47,7 @@ const (
 const (
 	HookSucceeded = "hook-succeeded"
 	HookFailed    = "hook-failed"
+	HookRecreate  = "hook-recreate"
 )
 
 // FilterTestHooks filters the list of hooks are returns only testing hooks.
