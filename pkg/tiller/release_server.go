@@ -346,6 +346,9 @@ func (s *ReleaseServer) execHook(hs []*release.Hook, name, namespace, hook strin
 	executingHooks = sortByHookWeight(executingHooks)
 
 	for _, h := range executingHooks {
+		if err := s.deleteHookIfShouldBeDeleted(h, hooks.HookRecreate, name, namespace, hook, kubeCli); err != nil {
+			return err
+		}
 
 		b := bytes.NewBufferString(h.Manifest)
 		if err := kubeCli.Create(namespace, b, timeout, false); err != nil {
@@ -355,20 +358,14 @@ func (s *ReleaseServer) execHook(hs []*release.Hook, name, namespace, hook strin
 		// No way to rewind a bytes.Buffer()?
 		b.Reset()
 		b.WriteString(h.Manifest)
+
 		if err := kubeCli.WatchUntilReady(namespace, b, timeout, false); err != nil {
 			s.Log("warning: Release %s %s %s could not complete: %s", name, hook, h.Path, err)
 			// If a hook is failed, checkout the annotation of the hook to determine whether the hook should be deleted
 			// under failed condition. If so, then clear the corresponding resource object in the hook
-			if hookShouldBeDeleted(h, hooks.HookFailed) {
-				b.Reset()
-				b.WriteString(h.Manifest)
-				s.Log("deleting %s hook %s for release %s due to %q policy", hook, h.Name, name, hooks.HookFailed)
-				if errHookDelete := kubeCli.Delete(namespace, b); errHookDelete != nil {
-					s.Log("warning: Release %s %s %S could not be deleted: %s", name, hook, h.Path, errHookDelete)
-					return errHookDelete
-				}
+			if err := s.deleteHookIfShouldBeDeleted(h, hooks.HookFailed, name, namespace, hook, kubeCli); err != nil {
+				return err
 			}
-			return err
 		}
 	}
 
@@ -376,17 +373,24 @@ func (s *ReleaseServer) execHook(hs []*release.Hook, name, namespace, hook strin
 	// If all hooks are succeeded, checkout the annotation of each hook to determine whether the hook should be deleted
 	// under succeeded condition. If so, then clear the corresponding resource object in each hook
 	for _, h := range executingHooks {
-		b := bytes.NewBufferString(h.Manifest)
-		if hookShouldBeDeleted(h, hooks.HookSucceeded) {
-			s.Log("deleting %s hook %s for release %s due to %q policy", hook, h.Name, name, hooks.HookSucceeded)
-			if errHookDelete := kubeCli.Delete(namespace, b); errHookDelete != nil {
-				s.Log("warning: Release %s %s %S could not be deleted: %s", name, hook, h.Path, errHookDelete)
-				return errHookDelete
-			}
+		if err := s.deleteHookIfShouldBeDeleted(h, hooks.HookSucceeded, name, namespace, hook, kubeCli); err != nil {
+			return err
 		}
 		h.LastRun = timeconv.Now()
 	}
 
+	return nil
+}
+
+func (s *ReleaseServer) deleteHookIfShouldBeDeleted(h *release.Hook, hookDeletePolicy string, name, namespace, hook string, kubeCli environment.KubeClient) error {
+	b := bytes.NewBufferString(h.Manifest)
+	if hookShouldBeDeleted(h, hookDeletePolicy) {
+		s.Log("deleting %s hook %s for release %s due to %q policy", hook, h.Name, name, hookDeletePolicy)
+		if errHookDelete := kubeCli.Delete(namespace, b); errHookDelete != nil {
+			s.Log("warning: Release %s %s %S could not be deleted: %s", name, hook, h.Path, errHookDelete)
+			return errHookDelete
+		}
+	}
 	return nil
 }
 

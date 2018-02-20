@@ -48,6 +48,7 @@ var events = map[string]release.Hook_Event{
 var deletePolices = map[string]release.Hook_DeletePolicy{
 	hooks.HookSucceeded: release.Hook_SUCCEEDED,
 	hooks.HookFailed:    release.Hook_FAILED,
+	hooks.HookRecreate:  release.Hook_RECREATE,
 }
 
 // Manifest represents a manifest file, which has a name and some content.

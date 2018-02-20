@@ -180,4 +180,7 @@ It is also possible to define policies that determine when to delete correspondi
     "helm.sh/hook-delete-policy": hook-succeeded
 ```
 
-When using `"helm.sh/hook-delete-policy"` annotation, you can choose its value from `"hook-succeeded"` and `"hook-failed"`. The value `"hook-succeeded"` specifies Tiller should delete the hook after the hook is successfully executed, while the value `"hook-failed"`specifies Tiller should delete the hook if the hook failed during execution.
+You can choose one or more defined annotation values:
+* `"hook-recreate"` specifies Tiller should delete the previous hook before the new hook is launched.
+* `"hook-succeeded"` specifies Tiller should delete the hook after the hook is successfully executed.
+* `"hook-failed"` specifies Tiller should delete the hook if the hook failed during execution.
