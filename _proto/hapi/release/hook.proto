@@ -39,6 +39,9 @@ message Hook {
 	    SUCCEEDED = 0;
 	    FAILED = 1;
 	}
+	enum ExistsPolicy {
+		DELETE = 0;
+	}
 	string name = 1;
 	// Kind is the Kubernetes kind.
 	string kind = 2;
@@ -54,4 +57,6 @@ message Hook {
 	int32 weight = 7;
 	// DeletePolicies are the policies that indicate when to delete the hook
 	repeated DeletePolicy delete_policies = 8;
+	// ExistsPolicies are the policies that indicate when to delete the hook
+	repeated ExistsPolicy exists_policies = 9;
 }

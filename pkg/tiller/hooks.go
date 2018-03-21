@@ -50,6 +50,11 @@ var deletePolices = map[string]release.Hook_DeletePolicy{
 	hooks.HookFailed:    release.Hook_FAILED,
 }
 
+// existsPolices represents a mapping between the key in the annotation for label exists policy and its real meaning
+var existsPolices = map[string]release.Hook_ExistsPolicy{
+	hooks.HookDelete: release.Hook_DELETE,
+}
+
 // Manifest represents a manifest file, which has a name and some content.
 type Manifest struct {
 	Name    string
@@ -169,6 +174,7 @@ func (file *manifestFile) sort(result *result) error {
 			Events:         []release.Hook_Event{},
 			Weight:         hw,
 			DeletePolicies: []release.Hook_DeletePolicy{},
+			ExistsPolicies: []release.Hook_ExistsPolicy{},
 		}
 
 		isUnknownHook := false
@@ -189,21 +195,23 @@ func (file *manifestFile) sort(result *result) error {
 
 		result.hooks = append(result.hooks, h)
 
-		isKnownDeletePolices := false
-		dps, ok := entry.Metadata.Annotations[hooks.HookDeleteAnno]
-		if ok {
-			for _, dp := range strings.Split(dps, ",") {
-				dp = strings.ToLower(strings.TrimSpace(dp))
-				p, exist := deletePolices[dp]
-				if exist {
-					isKnownDeletePolices = true
-					h.DeletePolicies = append(h.DeletePolicies, p)
-				}
+		operateAnnotationValues(entry, hooks.HookDeleteAnno, func(value string) {
+			policy, exist := deletePolices[value]
+			if exist {
+				h.DeletePolicies = append(h.DeletePolicies, policy)
+			} else {
+				log.Printf("info: skipping unknown hook delete policy: %q", value)
 			}
-			if !isKnownDeletePolices {
-				log.Printf("info: skipping unknown hook delete policy: %q", dps)
+		})
+
+		operateAnnotationValues(entry, hooks.HookExistsAnno, func(value string) {
+			policy, exist := existsPolices[value]
+			if exist {
+				h.ExistsPolicies = append(h.ExistsPolicies, policy)
+			} else {
+				log.Printf("info: skipping unknown hook exists policy: %q", value)
 			}
-		}
+		})
 	}
 
 	return nil
@@ -227,4 +235,13 @@ func calculateHookWeight(entry util.SimpleHead) int32 {
 	}
 
 	return int32(hw)
+}
+
+func operateAnnotationValues(entry util.SimpleHead, annotation string, operate func(p string)) {
+	if dps, ok := entry.Metadata.Annotations[annotation]; ok {
+		for _, dp := range strings.Split(dps, ",") {
+			dp = strings.ToLower(strings.TrimSpace(dp))
+			operate(dp)
+		}
+	}
 }
