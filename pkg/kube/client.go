@@ -73,6 +73,25 @@ var metadataAccessor = meta.NewAccessor()
 type Client struct {
 	cmdutil.Factory
 	Log func(string, ...interface{})
+
+	ResourcesWaiter ResourcesWaiter
+}
+
+type ResourcesWaiter interface {
+	// WatchUntilReady watch the resource in reader until it is "ready".
+	//
+	// For Jobs, "ready" means the job ran to completion (excited without error).
+	// For all other kinds, it means the kind was created or modified without
+	// error.
+	WatchUntilReady(namespace string, reader io.Reader, timeout time.Duration) error
+
+	// WaitForResources polls to get the current status of all pods, PVCs, and Services
+	// until all are ready or a timeout is reached
+	WaitForResources(timeout time.Duration, created Result) error
+}
+
+func (c *Client) SetResourcesWaiter(waiter ResourcesWaiter) {
+	c.ResourcesWaiter = waiter
 }
 
 // New creates a new Client.
@@ -557,6 +576,10 @@ func (c *Client) watchTimeout(t time.Duration) ResourceActorFunc {
 //
 // Handling for other kinds will be added as necessary.
 func (c *Client) WatchUntilReady(namespace string, reader io.Reader, timeout int64, shouldWait bool) error {
+	if c.ResourcesWaiter != nil {
+		return c.ResourcesWaiter.WatchUntilReady(namespace, reader, time.Duration(timeout)*time.Second)
+	}
+
 	infos, err := c.BuildUnstructured(namespace, reader)
 	if err != nil {
 		return err
