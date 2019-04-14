@@ -38,9 +38,13 @@ type deployment struct {
 	deployment  *appsv1.Deployment
 }
 
-// waitForResources polls to get the current status of all pods, PVCs, and Services
+// WaitForResources polls to get the current status of all pods, PVCs, and Services
 // until all are ready or a timeout is reached
 func (c *Client) waitForResources(timeout time.Duration, created Result) error {
+	if c.ResourcesWaiter != nil {
+		return c.ResourcesWaiter.WaitForResources(timeout, created)
+	}
+
 	c.Log("beginning wait for %d resources with timeout of %v", len(created), timeout)
 
 	kcs, err := c.KubernetesClientSet()
