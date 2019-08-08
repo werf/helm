@@ -114,10 +114,26 @@ var nopLogger = func(_ string, _ ...interface{}) {}
 // ResourceActorFunc performs an action on a single resource.
 type ResourceActorFunc func(*resource.Info) error
 
-// Create creates Kubernetes resources from an io.reader.
+// Deprecated; use CreateWithOptions instead
+func (c *Client) Create(namespace string, reader io.Reader, timeout int64, shouldWait bool) error {
+	return c.CreateWithOptions(namespace, reader, CreateOptions{
+		Timeout:    timeout,
+		ShouldWait: shouldWait,
+	})
+}
+
+// CreateOptions provides options to control create behavior
+type CreateOptions struct {
+	Timeout    int64
+	ShouldWait bool
+
+	PostPerformHook func() error
+}
+
+// CreateWithOptions creates Kubernetes resources from an io.reader.
 //
 // Namespace will set the namespace.
-func (c *Client) Create(namespace string, reader io.Reader, timeout int64, shouldWait bool) error {
+func (c *Client) CreateWithOptions(namespace string, reader io.Reader, opts CreateOptions) error {
 	client, err := c.KubernetesClientSet()
 	if err != nil {
 		return err
@@ -134,8 +150,15 @@ func (c *Client) Create(namespace string, reader io.Reader, timeout int64, shoul
 	if err := perform(infos, createResource); err != nil {
 		return err
 	}
-	if shouldWait {
-		return c.waitForResources(time.Duration(timeout)*time.Second, infos)
+
+	if opts.PostPerformHook != nil {
+		if err := opts.PostPerformHook(); err != nil {
+			return err
+		}
+	}
+
+	if opts.ShouldWait {
+		return c.waitForResources(time.Duration(opts.Timeout)*time.Second, infos)
 	}
 	return nil
 }
@@ -351,6 +374,8 @@ type UpdateOptions struct {
 	ShouldWait bool
 	// Allow deletion of new resources created in this update when update failed
 	CleanupOnFail bool
+
+	PostPerformHook func() error
 }
 
 // UpdateWithOptions reads in the current configuration and a target configuration from io.reader
@@ -454,6 +479,13 @@ func (c *Client) UpdateWithOptions(namespace string, originalReader, targetReade
 			c.Log("Failed to delete %q, err: %s", info.Name, err)
 		}
 	}
+
+	if opts.PostPerformHook != nil {
+		if err := opts.PostPerformHook(); err != nil {
+			return err
+		}
+	}
+
 	if opts.ShouldWait {
 		err := c.waitForResources(time.Duration(opts.Timeout)*time.Second, target)
 

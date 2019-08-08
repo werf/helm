@@ -35,9 +35,11 @@ const (
 const (
 	PreInstall         = "pre-install"
 	PostInstall        = "post-install"
+	PostApplyOnInstall = "post-apply-on-install"
 	PreDelete          = "pre-delete"
 	PostDelete         = "post-delete"
 	PreUpgrade         = "pre-upgrade"
+	PostApplyOnUpgrade = "post-apply-on-upgrade"
 	PostUpgrade        = "post-upgrade"
 	PreRollback        = "pre-rollback"
 	PostRollback       = "post-rollback"

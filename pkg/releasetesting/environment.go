@@ -25,6 +25,7 @@ import (
 
 	"k8s.io/api/core/v1"
 
+	"k8s.io/helm/pkg/kube"
 	"k8s.io/helm/pkg/proto/hapi/release"
 	"k8s.io/helm/pkg/proto/hapi/services"
 	"k8s.io/helm/pkg/tiller/environment"
@@ -43,7 +44,10 @@ type Environment struct {
 
 func (env *Environment) createTestPod(test *test) error {
 	b := bytes.NewBufferString(test.manifest)
-	if err := env.KubeClient.Create(env.Namespace, b, env.Timeout, false); err != nil {
+	if err := env.KubeClient.CreateWithOptions(env.Namespace, b, kube.CreateOptions{
+		Timeout:    env.Timeout,
+		ShouldWait: false,
+	}); err != nil {
 		log.Printf(err.Error())
 		test.result.Info = err.Error()
 		test.result.Status = release.TestRun_FAILURE
