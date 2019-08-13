@@ -104,11 +104,14 @@ type Engine interface {
 //
 // A KubeClient must be concurrency safe.
 type KubeClient interface {
-	// Create creates one or more resources.
+	// Deprecated; use CreateWithOptions instead
+	Create(namespace string, reader io.Reader, timeout int64, shouldWait bool) error
+
+	// CreateWithOptions creates one or more resources.
 	//
 	// reader must contain a YAML stream (one or more YAML documents separated
 	// by "\n---\n").
-	Create(namespace string, reader io.Reader, timeout int64, shouldWait bool) error
+	CreateWithOptions(namespace string, reader io.Reader, opts kube.CreateOptions) error
 
 	// Get gets one or more resources. Returned string hsa the format like kubectl
 	// provides with the column headers separating the resource types.
@@ -184,8 +187,16 @@ type PrintingKubeClient struct {
 	Out io.Writer
 }
 
-// Create prints the values of what would be created with a real KubeClient.
+// Create implements KubeClient Create.
 func (p *PrintingKubeClient) Create(ns string, r io.Reader, timeout int64, shouldWait bool) error {
+	return p.CreateWithOptions(ns, r, kube.CreateOptions{
+		Timeout:    timeout,
+		ShouldWait: shouldWait,
+	})
+}
+
+// CreateWithOptions prints the values of what would be created with a real KubeClient.
+func (p *PrintingKubeClient) CreateWithOptions(ns string, r io.Reader, opts kube.CreateOptions) error {
 	_, err := io.Copy(p.Out, r)
 	return err
 }

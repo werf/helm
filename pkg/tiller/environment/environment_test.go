@@ -43,6 +43,9 @@ type mockKubeClient struct{}
 func (k *mockKubeClient) Create(ns string, r io.Reader, timeout int64, shouldWait bool) error {
 	return nil
 }
+func (k *mockKubeClient) CreateWithOptions(ns string, r io.Reader, options kube.CreateOptions) error {
+	return nil
+}
 func (k *mockKubeClient) Get(ns string, r io.Reader) (string, error) {
 	return "", nil
 }
@@ -117,7 +120,10 @@ func TestKubeClient(t *testing.T) {
 		b.WriteString(content)
 	}
 
-	if err := env.KubeClient.Create("sharry-bobbins", b, 300, false); err != nil {
+	if err := env.KubeClient.CreateWithOptions("sharry-bobbins", b, kube.CreateOptions{
+		Timeout:    300,
+		ShouldWait: false,
+	}); err != nil {
 		t.Errorf("Kubeclient failed: %s", err)
 	}
 }

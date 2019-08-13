@@ -32,6 +32,7 @@ import (
 
 	"k8s.io/helm/pkg/chartutil"
 	"k8s.io/helm/pkg/hooks"
+	"k8s.io/helm/pkg/kube"
 	"k8s.io/helm/pkg/proto/hapi/chart"
 	"k8s.io/helm/pkg/proto/hapi/release"
 	"k8s.io/helm/pkg/proto/hapi/services"
@@ -358,6 +359,10 @@ func (s *ReleaseServer) renderResources(ch *chart.Chart, values chartutil.Values
 	return hooks, b, notes, nil
 }
 
+func (s *ReleaseServer) RecordRelease(r *release.Release, reuse bool) {
+	s.recordRelease(r, reuse)
+}
+
 // recordRelease with an update operation in case reuse has been set.
 func (s *ReleaseServer) recordRelease(r *release.Release, reuse bool) {
 	if reuse {
@@ -367,6 +372,10 @@ func (s *ReleaseServer) recordRelease(r *release.Release, reuse bool) {
 	} else if err := s.env.Releases.Create(r); err != nil {
 		s.Log("warning: Failed to record release %s: %s", r.Name, err)
 	}
+}
+
+func (s *ReleaseServer) ExecHook(hs []*release.Hook, name, namespace, hook string, timeout int64) error {
+	return s.execHook(hs, name, namespace, hook, timeout)
 }
 
 func (s *ReleaseServer) execHook(hs []*release.Hook, name, namespace, hook string, timeout int64) error {
@@ -394,7 +403,10 @@ func (s *ReleaseServer) execHook(hs []*release.Hook, name, namespace, hook strin
 		}
 
 		b := bytes.NewBufferString(h.Manifest)
-		if err := kubeCli.Create(namespace, b, timeout, false); err != nil {
+		if err := kubeCli.CreateWithOptions(namespace, b, kube.CreateOptions{
+			Timeout:    timeout,
+			ShouldWait: false,
+		}); err != nil {
 			s.Log("warning: Release %s %s %s failed: %s", name, hook, h.Path, err)
 			return err
 		}

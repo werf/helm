@@ -34,10 +34,12 @@ import (
 
 var events = map[string]release.Hook_Event{
 	hooks.PreInstall:         release.Hook_PRE_INSTALL,
+	hooks.PostApplyOnInstall: release.Hook_POST_APPLY_ON_INSTALL,
 	hooks.PostInstall:        release.Hook_POST_INSTALL,
 	hooks.PreDelete:          release.Hook_PRE_DELETE,
 	hooks.PostDelete:         release.Hook_POST_DELETE,
 	hooks.PreUpgrade:         release.Hook_PRE_UPGRADE,
+	hooks.PostApplyOnUpgrade: release.Hook_POST_APPLY_ON_UPGRADE,
 	hooks.PostUpgrade:        release.Hook_POST_UPGRADE,
 	hooks.PreRollback:        release.Hook_PRE_ROLLBACK,
 	hooks.PostRollback:       release.Hook_POST_ROLLBACK,
