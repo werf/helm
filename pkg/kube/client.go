@@ -24,13 +24,15 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"os"
 	"sort"
 	"strings"
 	"time"
 
 	"k8s.io/apimachinery/pkg/api/meta"
 
-	"github.com/evanphx/json-patch"
+	jsonpatch "github.com/evanphx/json-patch"
+	"github.com/flant/logboek"
 	appsv1 "k8s.io/api/apps/v1"
 	appsv1beta1 "k8s.io/api/apps/v1beta1"
 	appsv1beta2 "k8s.io/api/apps/v1beta2"
@@ -45,6 +47,8 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/jsonmergepatch"
+	"k8s.io/apimachinery/pkg/util/mergepatch"
 	"k8s.io/apimachinery/pkg/util/strategicpatch"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/apimachinery/pkg/watch"
@@ -61,6 +65,11 @@ import (
 
 // MissingGetHeader is added to Get's output when a resource is not found.
 const MissingGetHeader = "==> MISSING\nKIND\t\tNAME\n"
+
+const (
+	repairPatchAnnotation       = "debug.werf.io/repair-patch"
+	repairPatchErrorsAnnotation = "debug.werf.io/repair-patch-errors"
+)
 
 // ErrNoObjectsVisited indicates that during a visit operation, no matching objects were found.
 var ErrNoObjectsVisited = goerrors.New("no objects visited")
@@ -375,29 +384,29 @@ func (c *Client) UpdateWithOptions(namespace string, originalReader, targetReade
 	updateErrors := []string{}
 
 	c.Log("checking %d resources for changes", len(target))
-	err = target.Visit(func(info *resource.Info, err error) error {
+	err = target.Visit(func(target *resource.Info, err error) error {
 		if err != nil {
 			return err
 		}
 
-		helper := resource.NewHelper(info.Client, info.Mapping)
-		if _, err := helper.Get(info.Namespace, info.Name, info.Export); err != nil {
+		helper := resource.NewHelper(target.Client, target.Mapping)
+		currentObj, err := helper.Get(target.Namespace, target.Name, target.Export)
+		if err != nil {
 			if !errors.IsNotFound(err) {
 				return fmt.Errorf("Could not get information about the resource: %s", err)
 			}
 
 			// Since the resource does not exist, create it.
-			if err := createResource(info); err != nil {
+			if err := createResource(target); err != nil {
 				return fmt.Errorf("failed to create resource: %s", err)
 			}
-			newlyCreatedResources = append(newlyCreatedResources, info)
+			newlyCreatedResources = append(newlyCreatedResources, target)
 
-			kind := info.Mapping.GroupVersionKind.Kind
-			c.Log("Created a new %s called %q\n", kind, info.Name)
+			c.Log("Created a new %s called %q\n", target.Mapping.GroupVersionKind.Kind, target.Name)
 			return nil
 		}
 
-		originalInfo := original.Get(info)
+		originalInfo := original.Get(target)
 
 		// The resource already exists in the cluster, but it wasn't defined in the previous release.
 		// In this case, we consider it to be a resource that was previously un-managed by the release and error out,
@@ -407,16 +416,15 @@ func (c *Client) UpdateWithOptions(namespace string, originalReader, targetReade
 		if originalInfo == nil {
 			return fmt.Errorf(
 				"kind %s with the name %q already exists in the cluster and wasn't defined in the previous release. Before upgrading, please either delete the resource from the cluster or remove it from the chart",
-				info.Mapping.GroupVersionKind.Kind,
-				info.Name,
+				target.Mapping.GroupVersionKind.Kind,
+				target.Name,
 			)
 		}
 
-		if err := updateResource(c, info, originalInfo.Object, opts.Force, opts.Recreate); err != nil {
-			c.Log("error updating the resource %q:\n\t %v", info.Name, err)
+		if err := updateResource(c, target, currentObj, originalInfo.Object, opts.Force, opts.Recreate); err != nil {
+			c.Log("error updating the resource %q:\n\t %v", target.Name, err)
 			updateErrors = append(updateErrors, err.Error())
 		}
-
 		return nil
 	})
 
@@ -637,6 +645,44 @@ func perform(infos Result, fn ResourceActorFunc) error {
 	return nil
 }
 
+func setObjectAnnotation(obj runtime.Object, annoName, annoValue string) error {
+	annots, err := metadataAccessor.Annotations(obj)
+	if err != nil {
+		return err
+	}
+
+	if annots == nil {
+		annots = map[string]string{}
+	}
+
+	annots[annoName] = annoValue
+
+	kind, err := metadataAccessor.Kind(obj)
+	if err != nil {
+		return err
+	}
+
+	name, err := metadataAccessor.Name(obj)
+	if err != nil {
+		return err
+	}
+
+	if os.Getenv("WERF_DEBUG_3WM_ANNOTATIONS_MODE") == "1" {
+		logboek.LogInfoF("Set annotation %s=%s for %s named %q\n", annoName, annoValue, kind, name)
+	}
+
+	return metadataAccessor.SetAnnotations(obj, annots)
+}
+
+func getObjectAnnotation(obj runtime.Object, annoName string) string {
+	annots, err := metadataAccessor.Annotations(obj)
+	if err != nil {
+		logboek.LogErrorF("Unable to fetch annotations of kube object: %s\n", err)
+		return ""
+	}
+	return annots[annoName]
+}
+
 func createResource(info *resource.Info) error {
 	obj, err := resource.NewHelper(info.Client, info.Mapping).Create(info.Namespace, true, info.Object, nil)
 	if err != nil {
@@ -652,11 +698,72 @@ func deleteResource(info *resource.Info) error {
 	return err
 }
 
+func applyPatch(target *resource.Info, current runtime.Object, patch []byte) ([]byte, error) {
+	oldData, err := json.Marshal(current)
+	if err != nil {
+		return nil, fmt.Errorf("serializing current configuration: %s", err)
+	}
+	return applyPatchForData(target, oldData, patch)
+}
+
+func applyPatchForData(target *resource.Info, oldData, patch []byte) ([]byte, error) {
+	if len(patch) == 0 || string(patch) == "{}" {
+		return oldData, nil
+	}
+
+	// Get a versioned object
+	versionedObject, err := asVersioned(target)
+
+	// Unstructured objects, such as CRDs, may not have an not registered error
+	// returned from ConvertToVersion. Anything that's unstructured should
+	// use the jsonpatch.CreateMergePatch. Strategic Merge Patch is not supported
+	// on objects like CRDs.
+	_, isUnstructured := versionedObject.(runtime.Unstructured)
+
+	// On newer K8s versions, CRDs aren't unstructured but has this dedicated type
+	_, isCRD := versionedObject.(*apiextv1beta1.CustomResourceDefinition)
+
+	switch {
+	case runtime.IsNotRegisteredError(err), isUnstructured, isCRD:
+		// fall back to generic JSON merge patch
+		res, err := jsonpatch.MergePatch(oldData, patch)
+		if err != nil {
+			return nil, fmt.Errorf("failed to merge patch: %s", err)
+		}
+		return res, nil
+	case err != nil:
+		return nil, fmt.Errorf("failed to get versionedObject: %s", err)
+	default:
+		var oldDataMap strategicpatch.JSONMap
+		if err := json.Unmarshal(oldData, &oldDataMap); err != nil {
+			return nil, fmt.Errorf("unable to unmarshal json data: %s: %s", oldData, err)
+		}
+
+		var patchMap strategicpatch.JSONMap
+		if err := json.Unmarshal(patch, &patchMap); err != nil {
+			return nil, fmt.Errorf("unable to unmarshal json patch: %s: %s", patch, err)
+		}
+
+		resMap, err := strategicpatch.StrategicMergeMapPatch(oldDataMap, patchMap, versionedObject)
+		if err != nil {
+			return nil, fmt.Errorf("failed to apply strategic merge patch: %s", err)
+		}
+
+		res, err := json.Marshal(resMap)
+		if err != nil {
+			return nil, fmt.Errorf("unable to marshal data map: %v: %s", resMap, err)
+		}
+
+		return res, nil
+	}
+}
+
 func createPatch(target *resource.Info, current runtime.Object) ([]byte, types.PatchType, error) {
 	oldData, err := json.Marshal(current)
 	if err != nil {
 		return nil, types.StrategicMergePatchType, fmt.Errorf("serializing current configuration: %s", err)
 	}
+
 	newData, err := json.Marshal(target.Object)
 	if err != nil {
 		return nil, types.StrategicMergePatchType, fmt.Errorf("serializing target configuration: %s", err)
@@ -701,11 +808,93 @@ func createPatch(target *resource.Info, current runtime.Object) ([]byte, types.P
 	}
 }
 
-func updateResource(c *Client, target *resource.Info, currentObj runtime.Object, force bool, recreate bool) error {
-	patch, patchType, err := createPatch(target, currentObj)
+func createRepairPatch(target *resource.Info, currentObj, originalObj runtime.Object) ([]byte, types.PatchType, error) {
+	twoWayMergePatch, _, err := createPatch(target, originalObj)
+	if err != nil {
+		return nil, "", fmt.Errorf("unable to create two-way merge patch: %s", err)
+	}
+
+	newCurrentData, err := applyPatch(target, currentObj, twoWayMergePatch)
+	if err != nil {
+		return nil, "", fmt.Errorf("unable to construct new current state using two-way merge patch: %s", err)
+	}
+
+	targetData, err := json.Marshal(target.Object)
+	if err != nil {
+		return nil, "", fmt.Errorf("serializing target configuration: %s", err)
+	}
+
+	var patchType types.PatchType
+	var patch []byte
+	var lookupPatchMeta strategicpatch.LookupPatchMeta
+	createPatchErrFormat := "creating patch with:\noriginal:\n%s\nmodified:\n%s\ncurrent:\n%s\nfor:"
+
+	// Create the versioned struct from the type defined in the restmapping
+	// (which is the API version we'll be submitting the patch to)
+	versionedObject, err := asVersioned(target)
+	_, isUnstructured := versionedObject.(runtime.Unstructured)
+	_, isCRD := versionedObject.(*apiextv1beta1.CustomResourceDefinition)
+
+	switch {
+	case runtime.IsNotRegisteredError(err), isUnstructured, isCRD:
+		// fall back to generic JSON merge patch
+		patchType = types.MergePatchType
+
+		preconditions := []mergepatch.PreconditionFunc{mergepatch.RequireKeyUnchanged("apiVersion"),
+			mergepatch.RequireKeyUnchanged("kind"), mergepatch.RequireMetadataKeyUnchanged("name")}
+
+		// fall back to generic JSON merge patch
+		patch, err = jsonmergepatch.CreateThreeWayJSONMergePatch(targetData, targetData, newCurrentData, preconditions...)
+		if err != nil {
+			if mergepatch.IsPreconditionFailed(err) {
+				return nil, "", fmt.Errorf("%s", "At least one of apiVersion, kind and name was changed")
+			}
+			return nil, "", cmdutil.AddSourceToErr(fmt.Sprintf(createPatchErrFormat, targetData, targetData, newCurrentData), target.Source, err)
+		}
+	case err != nil:
+		return nil, "", cmdutil.AddSourceToErr(fmt.Sprintf("getting instance of versioned object for %v:", target.Mapping.GroupVersionKind), target.Source, err)
+	default:
+		lookupPatchMeta, err = strategicpatch.NewPatchMetaFromStruct(versionedObject)
+		if err != nil {
+			return nil, "", cmdutil.AddSourceToErr(fmt.Sprintf(createPatchErrFormat, targetData, targetData, newCurrentData), target.Source, err)
+		}
+
+		patch, err = strategicpatch.CreateThreeWayMergePatch(targetData, targetData, newCurrentData, lookupPatchMeta, true)
+		if err != nil {
+			return nil, types.StrategicMergePatchType, fmt.Errorf("failed to create two-way merge patch: %v", err)
+		}
+	}
+
+	return patch, patchType, nil
+}
+
+func updateResource(c *Client, target *resource.Info, currentObj, originalObj runtime.Object, force bool, recreate bool) error {
+	repairPatch, _, err := createRepairPatch(target, currentObj, originalObj)
+	if err != nil {
+		logboek.LogErrorF("WARNING Unable to create repair patch: %s\n", err)
+		_ = setObjectAnnotation(target.Object, repairPatchErrorsAnnotation, err.Error())
+	} else {
+		repairPatchEmpty := ((len(repairPatch) == 0) || (string(repairPatch) == "{}"))
+
+		_ = setObjectAnnotation(target.Object, repairPatchAnnotation, string(repairPatch))
+
+		defer func() {
+			if !repairPatchEmpty {
+				logboek.LogErrorF("WARNING ###########################################################################\n")
+				logboek.LogErrorF("WARNING %s named %s state is inconsistent with chart configuration state!\n", target.Mapping.GroupVersionKind.Kind, target.Name)
+				logboek.LogErrorF("WARNING Repair patch has been written to the %s annotation of %s named %s\n", repairPatchAnnotation, target.Mapping.GroupVersionKind.Kind, target.Name)
+				logboek.LogErrorF("WARNING Execute the following command manually to repair resource state:\n")
+				fmt.Printf("kubectl -n %s patch %s %s -p '%s'\n", target.Namespace, target.Mapping.GroupVersionKind.Kind, target.Name, repairPatch)
+				logboek.LogErrorF("WARNING ###########################################################################\n")
+			}
+		}()
+	}
+
+	patch, patchType, err := createPatch(target, originalObj)
 	if err != nil {
 		return fmt.Errorf("failed to create patch: %s", err)
 	}
+
 	if patch == nil {
 		c.Log("Looks like there are no changes for %s %q", target.Mapping.GroupVersionKind.Kind, target.Name)
 		// This needs to happen to make sure that tiller has the latest info from the API
