@@ -24,13 +24,14 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"os"
 	"sort"
 	"strings"
 	"time"
 
 	"k8s.io/apimachinery/pkg/api/meta"
 
-	"github.com/evanphx/json-patch"
+	jsonpatch "github.com/evanphx/json-patch"
 	appsv1 "k8s.io/api/apps/v1"
 	appsv1beta1 "k8s.io/api/apps/v1beta1"
 	appsv1beta2 "k8s.io/api/apps/v1beta2"
@@ -41,10 +42,13 @@ import (
 	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/jsonmergepatch"
+	"k8s.io/apimachinery/pkg/util/mergepatch"
 	"k8s.io/apimachinery/pkg/util/strategicpatch"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/apimachinery/pkg/watch"
@@ -61,6 +65,8 @@ import (
 
 // MissingGetHeader is added to Get's output when a resource is not found.
 const MissingGetHeader = "==> MISSING\nKIND\t\tNAME\n"
+
+const threeWayMergeModeEnabledAnnotation = "werf.io/3-way-merge-mode-enabled"
 
 // ErrNoObjectsVisited indicates that during a visit operation, no matching objects were found.
 var ErrNoObjectsVisited = goerrors.New("no objects visited")
@@ -400,29 +406,29 @@ func (c *Client) UpdateWithOptions(namespace string, originalReader, targetReade
 	updateErrors := []string{}
 
 	c.Log("checking %d resources for changes", len(target))
-	err = target.Visit(func(info *resource.Info, err error) error {
+	err = target.Visit(func(targetInfo *resource.Info, err error) error {
 		if err != nil {
 			return err
 		}
 
-		helper := resource.NewHelper(info.Client, info.Mapping)
-		if _, err := helper.Get(info.Namespace, info.Name, info.Export); err != nil {
+		helper := resource.NewHelper(targetInfo.Client, targetInfo.Mapping)
+		currentObj, err := helper.Get(targetInfo.Namespace, targetInfo.Name, targetInfo.Export)
+		if err != nil {
 			if !errors.IsNotFound(err) {
 				return fmt.Errorf("Could not get information about the resource: %s", err)
 			}
 
 			// Since the resource does not exist, create it.
-			if err := createResource(info); err != nil {
+			if err := createResource(targetInfo); err != nil {
 				return fmt.Errorf("failed to create resource: %s", err)
 			}
-			newlyCreatedResources = append(newlyCreatedResources, info)
+			newlyCreatedResources = append(newlyCreatedResources, targetInfo)
 
-			kind := info.Mapping.GroupVersionKind.Kind
-			c.Log("Created a new %s called %q\n", kind, info.Name)
+			c.Log("Created a new %s called %q\n", targetInfo.Mapping.GroupVersionKind.Kind, targetInfo.Name)
 			return nil
 		}
 
-		originalInfo := original.Get(info)
+		originalInfo := original.Get(targetInfo)
 
 		// The resource already exists in the cluster, but it wasn't defined in the previous release.
 		// In this case, we consider it to be a resource that was previously un-managed by the release and error out,
@@ -432,16 +438,20 @@ func (c *Client) UpdateWithOptions(namespace string, originalReader, targetReade
 		if originalInfo == nil {
 			return fmt.Errorf(
 				"kind %s with the name %q already exists in the cluster and wasn't defined in the previous release. Before upgrading, please either delete the resource from the cluster or remove it from the chart",
-				info.Mapping.GroupVersionKind.Kind,
-				info.Name,
+				targetInfo.Mapping.GroupVersionKind.Kind,
+				targetInfo.Name,
 			)
 		}
 
-		if err := updateResource(c, info, originalInfo.Object, opts.Force, opts.Recreate); err != nil {
-			c.Log("error updating the resource %q:\n\t %v", info.Name, err)
-			updateErrors = append(updateErrors, err.Error())
+		useThreeWayMergePatch, err := getThreeWayMergeModeEnabled(currentObj)
+		if err != nil {
+			return fmt.Errorf("failed to retrieve 3-way-merge info from %s named %q: %s", targetInfo.Mapping.GroupVersionKind.Kind, targetInfo.Name, err)
 		}
 
+		if err := updateResource(c, targetInfo, currentObj, originalInfo.Object, opts.Force, opts.Recreate, useThreeWayMergePatch); err != nil {
+			c.Log("error updating the resource %q:\n\t %v", targetInfo.Name, err)
+			updateErrors = append(updateErrors, err.Error())
+		}
 		return nil
 	})
 
@@ -669,7 +679,53 @@ func perform(infos Result, fn ResourceActorFunc) error {
 	return nil
 }
 
+func setThreeWayMergeModeEnabled(obj runtime.Object) error {
+	if os.Getenv("WERF_3_WAY_MERGE_MODE_ENABLED") != "1" {
+		return nil
+	}
+
+	annots, err := metadataAccessor.Annotations(obj)
+	if err != nil {
+		return err
+	}
+
+	if annots == nil {
+		annots = map[string]string{}
+	}
+
+	annots[threeWayMergeModeEnabledAnnotation] = "true"
+
+	kind, err := metadataAccessor.Kind(obj)
+	if err != nil {
+		return err
+	}
+	name, err := metadataAccessor.Name(obj)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("Set 3-way-merge mode for %s named %q\n", kind, name)
+
+	return metadataAccessor.SetAnnotations(obj, annots)
+}
+
+func getThreeWayMergeModeEnabled(obj runtime.Object) (bool, error) {
+	if os.Getenv("WERF_3_WAY_MERGE_MODE_ENABLED") != "1" {
+		return false, nil
+	}
+
+	annots, err := metadataAccessor.Annotations(obj)
+	if err != nil {
+		return false, err
+	}
+
+	return annots[threeWayMergeModeEnabledAnnotation] == "true", nil
+}
+
 func createResource(info *resource.Info) error {
+	if err := setThreeWayMergeModeEnabled(info.Object); err != nil {
+		return fmt.Errorf("failed to set three way merge mode for %s named %q: %s", info.Mapping.GroupVersionKind.Kind, info.Name, err)
+	}
+
 	obj, err := resource.NewHelper(info.Client, info.Mapping).Create(info.Namespace, true, info.Object, nil)
 	if err != nil {
 		return err
@@ -682,6 +738,65 @@ func deleteResource(info *resource.Info) error {
 	opts := &metav1.DeleteOptions{PropagationPolicy: &policy}
 	_, err := resource.NewHelper(info.Client, info.Mapping).DeleteWithOptions(info.Namespace, info.Name, opts)
 	return err
+}
+
+func createThreeWayMergePatch(c *Client, targetInfo *resource.Info, currentObj runtime.Object, originalObj runtime.Object) ([]byte, types.PatchType, error) {
+	targetJson, err := runtime.Encode(unstructured.UnstructuredJSONScheme, targetInfo.Object)
+	if err != nil {
+		return nil, types.StrategicMergePatchType, fmt.Errorf("unable to construct current manifest for %s named %q", targetInfo.Mapping.GroupVersionKind.Kind, targetInfo.Name)
+	}
+
+	currentJson, err := runtime.Encode(unstructured.UnstructuredJSONScheme, currentObj)
+	if err != nil {
+		return nil, types.StrategicMergePatchType, fmt.Errorf("unable to construct current manifest for %s named %q", targetInfo.Mapping.GroupVersionKind.Kind, targetInfo.Name)
+	}
+
+	originalJson, err := runtime.Encode(unstructured.UnstructuredJSONScheme, originalObj)
+	if err != nil {
+		return nil, types.StrategicMergePatchType, fmt.Errorf("unable to construct current manifest for %s named %q", targetInfo.Mapping.GroupVersionKind.Kind, targetInfo.Name)
+	}
+
+	fmt.Printf("createThreeWayMergePatch target:\n%s\ncurrent:\n%s\noriginal:\n%s\n---\n", targetJson, currentJson, originalJson)
+
+	var patchType types.PatchType
+	var patch []byte
+	var lookupPatchMeta strategicpatch.LookupPatchMeta
+	createPatchErrFormat := "creating patch with:\noriginal:\n%s\nmodified:\n%s\ncurrent:\n%s\nfor:"
+
+	// Create the versioned struct from the type defined in the restmapping
+	// (which is the API version we'll be submitting the patch to)
+	versionedObject, err := scheme.Scheme.New(targetInfo.Mapping.GroupVersionKind)
+	switch {
+	case runtime.IsNotRegisteredError(err):
+		// fall back to generic JSON merge patch
+		patchType = types.MergePatchType
+		preconditions := []mergepatch.PreconditionFunc{mergepatch.RequireKeyUnchanged("apiVersion"),
+			mergepatch.RequireKeyUnchanged("kind"), mergepatch.RequireMetadataKeyUnchanged("name")}
+		patch, err = jsonmergepatch.CreateThreeWayJSONMergePatch(originalJson, targetJson, currentJson, preconditions...)
+		if err != nil {
+			if mergepatch.IsPreconditionFailed(err) {
+				return nil, "", fmt.Errorf("%s", "At least one of apiVersion, kind and name was changed")
+			}
+			return nil, "", cmdutil.AddSourceToErr(fmt.Sprintf(createPatchErrFormat, originalJson, targetJson, currentJson), targetInfo.Source, err)
+		}
+	case err != nil:
+		return nil, "", cmdutil.AddSourceToErr(fmt.Sprintf("getting instance of versioned object for %v:", targetInfo.Mapping.GroupVersionKind), targetInfo.Source, err)
+	case err == nil:
+		// Compute a three way strategic merge patch to send to server.
+		patchType = types.StrategicMergePatchType
+
+		lookupPatchMeta, err = strategicpatch.NewPatchMetaFromStruct(versionedObject)
+		if err != nil {
+			return nil, "", cmdutil.AddSourceToErr(fmt.Sprintf(createPatchErrFormat, originalJson, targetJson, currentJson), targetInfo.Source, err)
+		}
+
+		patch, err = strategicpatch.CreateThreeWayMergePatch(originalJson, targetJson, currentJson, lookupPatchMeta, true)
+		if err != nil {
+			return nil, "", cmdutil.AddSourceToErr(fmt.Sprintf(createPatchErrFormat, originalJson, targetJson, currentJson), targetInfo.Source, err)
+		}
+	}
+
+	return patch, patchType, nil
 }
 
 func createPatch(target *resource.Info, current runtime.Object) ([]byte, types.PatchType, error) {
@@ -733,8 +848,33 @@ func createPatch(target *resource.Info, current runtime.Object) ([]byte, types.P
 	}
 }
 
-func updateResource(c *Client, target *resource.Info, currentObj runtime.Object, force bool, recreate bool) error {
-	patch, patchType, err := createPatch(target, currentObj)
+func updateResource(c *Client, target *resource.Info, currentObj runtime.Object, originalObj runtime.Object, force bool, recreate bool, useThreeWayMergePatch bool) error {
+	patchFunc := func() (p []byte, ptype types.PatchType, err error) {
+		if useThreeWayMergePatch {
+			fmt.Printf("Using 3-way-merge mode for %s named %q\n", target.Mapping.GroupVersionKind.Kind, target.Name)
+			p, ptype, err = createThreeWayMergePatch(c, target, currentObj, originalObj)
+		} else {
+			fmt.Printf("Using legacy 2-way-merge mode for %s named %q\n", target.Mapping.GroupVersionKind.Kind, target.Name)
+			p, ptype, err = createPatch(target, originalObj)
+		}
+
+		if err == nil && len(p) > 0 {
+			patch := p
+			if len(patch) == 0 {
+				patch = []byte("{}")
+			}
+
+			var prettyJSON bytes.Buffer
+			if e := json.Indent(&prettyJSON, p, "", "  "); e != nil {
+				panic(fmt.Sprintf("got broken json patch: %s:\n%s", e, p))
+			}
+
+			fmt.Printf("Created patch for %s named %q:\n%s\n", target.Mapping.GroupVersionKind.Kind, target.Name, prettyJSON.String())
+		}
+		return
+	}
+
+	patch, patchType, err := patchFunc()
 	if err != nil {
 		return fmt.Errorf("failed to create patch: %s", err)
 	}
