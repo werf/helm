@@ -51,9 +51,6 @@ func Load(name string) (*chart.Chart, error) {
 		return nil, err
 	}
 	if fi.IsDir() {
-		if validChart, err := IsChartDir(name); !validChart {
-			return nil, err
-		}
 		return LoadDir(name)
 	}
 	return LoadFile(name)
@@ -193,14 +190,6 @@ func LoadFiles(files []*BufferedFile) (*chart.Chart, error) {
 		} else {
 			c.Files = append(c.Files, &any.Any{TypeUrl: f.Name, Value: f.Data})
 		}
-	}
-
-	// Ensure that we got a Chart.yaml file
-	if c.Metadata == nil {
-		return c, errors.New("chart metadata (Chart.yaml) missing")
-	}
-	if c.Metadata.Name == "" {
-		return c, errors.New("invalid chart (Chart.yaml): name must not be empty")
 	}
 
 	for n, files := range subcharts {
