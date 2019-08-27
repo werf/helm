@@ -37,6 +37,18 @@ import (
 	"k8s.io/helm/pkg/sympath"
 )
 
+var skipChartYamlFileValidation bool
+
+func WithSkipChartYamlFileValidation(f func() error) error {
+	oldSkipChartYamlFileValidation := skipChartYamlFileValidation
+
+	skipChartYamlFileValidation = true
+	err := f()
+	skipChartYamlFileValidation = oldSkipChartYamlFileValidation
+
+	return err
+}
+
 // Load takes a string name, tries to resolve it to a file or directory, and then loads it.
 //
 // This is the preferred way to load a chart. It will discover the chart encoding
@@ -51,9 +63,12 @@ func Load(name string) (*chart.Chart, error) {
 		return nil, err
 	}
 	if fi.IsDir() {
-		if validChart, err := IsChartDir(name); !validChart {
-			return nil, err
+		if !skipChartYamlFileValidation {
+			if validChart, err := IsChartDir(name); !validChart {
+				return nil, err
+			}
 		}
+
 		return LoadDir(name)
 	}
 	return LoadFile(name)
@@ -195,12 +210,14 @@ func LoadFiles(files []*BufferedFile) (*chart.Chart, error) {
 		}
 	}
 
-	// Ensure that we got a Chart.yaml file
-	if c.Metadata == nil {
-		return c, errors.New("chart metadata (Chart.yaml) missing")
-	}
-	if c.Metadata.Name == "" {
-		return c, errors.New("invalid chart (Chart.yaml): name must not be empty")
+	if !skipChartYamlFileValidation {
+		// Ensure that we got a Chart.yaml file
+		if c.Metadata == nil {
+			return c, errors.New("chart metadata (Chart.yaml) missing")
+		}
+		if c.Metadata.Name == "" {
+			return c, errors.New("invalid chart (Chart.yaml): name must not be empty")
+		}
 	}
 
 	for n, files := range subcharts {
