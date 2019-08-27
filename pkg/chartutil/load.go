@@ -44,16 +44,49 @@ import (
 //
 // If a .helmignore file is present, the directory loader will skip loading any files
 // matching it. But .helmignore is not evaluated when reading out of an archive.
-func Load(name string) (*chart.Chart, error) {
+func Load(name string) (c *chart.Chart, err error) {
 	name = filepath.FromSlash(name)
 	fi, err := os.Stat(name)
 	if err != nil {
 		return nil, err
 	}
+
 	if fi.IsDir() {
-		return LoadDir(name)
+		c, err = LoadDir(name)
+		if err != nil {
+			return
+		}
+	} else {
+		c, err = LoadFile(name)
+		if err != nil {
+			return
+		}
 	}
-	return LoadFile(name)
+
+	if err = validateChartDependencies(c); err != nil {
+		return
+	}
+
+	return
+}
+
+func validateChartDependencies(c *chart.Chart) error {
+	for _, dependency := range c.Dependencies {
+		// Ensure that we got a Chart.yaml file
+		if dependency.Metadata == nil {
+			return errors.New("dependency chart metadata (Chart.yaml) missing")
+		}
+
+		if dependency.Metadata.Name == "" {
+			return errors.New("dependency invalid chart (Chart.yaml): name must not be empty")
+		}
+
+		if err := validateChartDependencies(dependency); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // BufferedFile represents an archive file buffered for later processing.
