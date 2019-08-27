@@ -44,49 +44,19 @@ import (
 //
 // If a .helmignore file is present, the directory loader will skip loading any files
 // matching it. But .helmignore is not evaluated when reading out of an archive.
-func Load(name string) (c *chart.Chart, err error) {
+func Load(name string) (*chart.Chart, error) {
 	name = filepath.FromSlash(name)
 	fi, err := os.Stat(name)
 	if err != nil {
 		return nil, err
 	}
-
 	if fi.IsDir() {
-		c, err = LoadDir(name)
-		if err != nil {
-			return
+		if validChart, err := IsChartDir(name); !validChart {
+			return nil, err
 		}
-	} else {
-		c, err = LoadFile(name)
-		if err != nil {
-			return
-		}
+		return LoadDir(name)
 	}
-
-	if err = validateChartDependencies(c); err != nil {
-		return
-	}
-
-	return
-}
-
-func validateChartDependencies(c *chart.Chart) error {
-	for _, dependency := range c.Dependencies {
-		// Ensure that we got a Chart.yaml file
-		if dependency.Metadata == nil {
-			return errors.New("dependency chart metadata (Chart.yaml) missing")
-		}
-
-		if dependency.Metadata.Name == "" {
-			return errors.New("dependency invalid chart (Chart.yaml): name must not be empty")
-		}
-
-		if err := validateChartDependencies(dependency); err != nil {
-			return err
-		}
-	}
-
-	return nil
+	return LoadFile(name)
 }
 
 // BufferedFile represents an archive file buffered for later processing.
@@ -223,6 +193,14 @@ func LoadFiles(files []*BufferedFile) (*chart.Chart, error) {
 		} else {
 			c.Files = append(c.Files, &any.Any{TypeUrl: f.Name, Value: f.Data})
 		}
+	}
+
+	// Ensure that we got a Chart.yaml file
+	if c.Metadata == nil {
+		return c, errors.New("chart metadata (Chart.yaml) missing")
+	}
+	if c.Metadata.Name == "" {
+		return c, errors.New("invalid chart (Chart.yaml): name must not be empty")
 	}
 
 	for n, files := range subcharts {
