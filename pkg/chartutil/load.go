@@ -38,13 +38,24 @@ import (
 )
 
 var skipChartYamlFileValidation bool
+var skipSubChartYamlFileValidation bool
 
-func WithSkipChartYamlFileValidation(f func() error) error {
+func WithSkipChartYamlFileValidation(value bool, f func() error) error {
 	oldSkipChartYamlFileValidation := skipChartYamlFileValidation
 
-	skipChartYamlFileValidation = true
+	skipChartYamlFileValidation = value
 	err := f()
 	skipChartYamlFileValidation = oldSkipChartYamlFileValidation
+
+	return err
+}
+
+func WithSkipSubChartYamlFileValidation(value bool, f func() error) error {
+	oldSkipSubChartYamlFileValidation := skipSubChartYamlFileValidation
+
+	skipSubChartYamlFileValidation = value
+	err := f()
+	skipSubChartYamlFileValidation = oldSkipSubChartYamlFileValidation
 
 	return err
 }
@@ -220,39 +231,45 @@ func LoadFiles(files []*BufferedFile) (*chart.Chart, error) {
 		}
 	}
 
-	for n, files := range subcharts {
-		var sc *chart.Chart
-		var err error
-		if strings.IndexAny(n, "_.") == 0 {
-			continue
-		} else if filepath.Ext(n) == ".tgz" {
-			file := files[0]
-			if file.Name != n {
-				return c, fmt.Errorf("error unpacking tar in %s: expected %s, got %s", c.Metadata.Name, n, file.Name)
-			}
-			// Untar the chart and add to c.Dependencies
-			b := bytes.NewBuffer(file.Data)
-			sc, err = LoadArchive(b)
-		} else {
-			// We have to trim the prefix off of every file, and ignore any file
-			// that is in charts/, but isn't actually a chart.
-			buff := make([]*BufferedFile, 0, len(files))
-			for _, f := range files {
-				parts := strings.SplitN(f.Name, "/", 2)
-				if len(parts) < 2 {
-					continue
+	if err := WithSkipChartYamlFileValidation(skipSubChartYamlFileValidation, func() error {
+		for n, files := range subcharts {
+			var sc *chart.Chart
+			var err error
+			if strings.IndexAny(n, "_.") == 0 {
+				continue
+			} else if filepath.Ext(n) == ".tgz" {
+				file := files[0]
+				if file.Name != n {
+					return fmt.Errorf("error unpacking tar in %s: expected %s, got %s", c.Metadata.Name, n, file.Name)
 				}
-				f.Name = parts[1]
-				buff = append(buff, f)
+				// Untar the chart and add to c.Dependencies
+				b := bytes.NewBuffer(file.Data)
+				sc, err = LoadArchive(b)
+			} else {
+				// We have to trim the prefix off of every file, and ignore any file
+				// that is in charts/, but isn't actually a chart.
+				buff := make([]*BufferedFile, 0, len(files))
+				for _, f := range files {
+					parts := strings.SplitN(f.Name, "/", 2)
+					if len(parts) < 2 {
+						continue
+					}
+					f.Name = parts[1]
+					buff = append(buff, f)
+				}
+				sc, err = LoadFiles(buff)
 			}
-			sc, err = LoadFiles(buff)
+
+			if err != nil {
+				return fmt.Errorf("error unpacking %s in %s: %s", n, c.Metadata.Name, err)
+			}
+
+			c.Dependencies = append(c.Dependencies, sc)
 		}
 
-		if err != nil {
-			return c, fmt.Errorf("error unpacking %s in %s: %s", n, c.Metadata.Name, err)
-		}
-
-		c.Dependencies = append(c.Dependencies, sc)
+		return nil
+	}); err != nil {
+		return c, err
 	}
 
 	return c, nil
