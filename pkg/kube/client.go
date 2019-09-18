@@ -74,8 +74,12 @@ import (
 const MissingGetHeader = "==> MISSING\nKIND\t\tNAME\n"
 
 const (
-	repairPatchAnnotation       = "debug.werf.io/repair-patch"
-	repairPatchErrorsAnnotation = "debug.werf.io/repair-patch-errors"
+	SetReplicasOnlyOnCreationAnnotation  = "werf.io/set-replicas-only-on-creation"
+	SetResourcesOnlyOnCreationAnnotation = "werf.io/set-resources-only-on-creation"
+
+	repairPatchAnnotation        = "debug.werf.io/repair-patch"
+	repairPatchErrorsAnnotation  = "debug.werf.io/repair-patch-errors"
+	repairInstructionsAnnotation = "debug.werf.io/repair-instructions"
 )
 
 // ErrNoObjectsVisited indicates that during a visit operation, no matching objects were found.
@@ -977,15 +981,25 @@ func createRepairPatch(target *resource.Info, currentObj, originalObj runtime.Ob
 		return nil, "", fmt.Errorf("unable to create two-way merge patch: %s", err)
 	}
 
+	setReplicasOnlyOnCreationAnnoValue := getObjectAnnotation(target.Object, SetReplicasOnlyOnCreationAnnotation)
+	setResourcesOnlyOnCreationAnnoValue := getObjectAnnotation(target.Object, SetResourcesOnlyOnCreationAnnotation)
+
+	isReplicasOnlyOnCreation := setReplicasOnlyOnCreationAnnoValue == "true"
+	isResourcesOnlyOnCreation := setResourcesOnlyOnCreationAnnoValue == "true"
+
 	newCurrentData, err := applyPatch(target, currentObj, twoWayMergePatch)
 	if err != nil {
 		return nil, "", fmt.Errorf("unable to construct new current state using two-way merge patch: %s", err)
 	}
 
+	newCurrentData = filterResourceData(newCurrentData, isReplicasOnlyOnCreation, isResourcesOnlyOnCreation)
+
 	targetData, err := json.Marshal(target.Object)
 	if err != nil {
 		return nil, "", fmt.Errorf("serializing target configuration: %s", err)
 	}
+
+	targetData = filterResourceData(targetData, isReplicasOnlyOnCreation, isResourcesOnlyOnCreation)
 
 	var patchType types.PatchType
 	var patch []byte
@@ -1032,25 +1046,50 @@ func createRepairPatch(target *resource.Info, currentObj, originalObj runtime.Ob
 }
 
 func updateResource(c *Client, target *resource.Info, currentObj, originalObj runtime.Object, force bool, recreate bool) error {
-	repairPatch, _, err := createRepairPatch(target, currentObj, originalObj)
+	repairPatchData, _, err := createRepairPatch(target, currentObj, originalObj)
 	if err != nil {
 		logboek.LogErrorF("WARNING Unable to create repair patch: %s\n", err)
 		_ = setObjectAnnotation(target.Object, repairPatchErrorsAnnotation, err.Error())
 	} else {
-		repairPatchEmpty := ((len(repairPatch) == 0) || (string(repairPatch) == "{}"))
+		isRepairPatchEmpty := len(repairPatchData) == 0 || string(repairPatchData) == "{}"
+		if !isRepairPatchEmpty {
+			var repairInstructions []string
 
-		_ = setObjectAnnotation(target.Object, repairPatchAnnotation, string(repairPatch))
+			// main repair instruction parts
+			mripart1 := fmt.Sprintf("%s named %s state is inconsistent with chart configuration state!", target.Mapping.GroupVersionKind.Kind, target.Name)
+			mripart2 := fmt.Sprintf("Repair patch has been written to the %s annotation of %s named %s", repairPatchAnnotation, target.Mapping.GroupVersionKind.Kind, target.Name)
+			mripart3 := "Execute the following command manually to repair resource state:"
+			mripart4 := fmt.Sprintf("kubectl -n %s patch %s %s -p '%s'", target.Namespace, target.Mapping.GroupVersionKind.Kind, target.Name, repairPatchData)
 
-		defer func() {
-			if !repairPatchEmpty {
+			repairInstructions = append(repairInstructions, strings.Join([]string{
+				mripart1,
+				mripart2,
+				mripart3,
+				mripart4,
+			}, "\n"))
+
+			ignoreInstructions := checkRepairPatchData(repairPatchData)
+			repairInstructions = append(repairInstructions, ignoreInstructions...)
+
+			repairInstructionJsonData, _ := json.Marshal(repairInstructions)
+			_ = setObjectAnnotation(target.Object, repairInstructionsAnnotation, string(repairInstructionJsonData))
+
+			defer func() {
 				logboek.LogErrorF("WARNING ###########################################################################\n")
-				logboek.LogErrorF("WARNING %s named %s state is inconsistent with chart configuration state!\n", target.Mapping.GroupVersionKind.Kind, target.Name)
-				logboek.LogErrorF("WARNING Repair patch has been written to the %s annotation of %s named %s\n", repairPatchAnnotation, target.Mapping.GroupVersionKind.Kind, target.Name)
-				logboek.LogErrorF("WARNING Execute the following command manually to repair resource state:\n")
-				fmt.Printf("kubectl -n %s patch %s %s -p '%s'\n", target.Namespace, target.Mapping.GroupVersionKind.Kind, target.Name, repairPatch)
+				logboek.LogErrorF("WARNING %s\n", mripart1)
+				logboek.LogErrorF("WARNING %s\n", mripart2)
+
+				for _, instruction := range ignoreInstructions {
+					logboek.LogErrorF(fmt.Sprintf("WARNING %s\n", instruction))
+				}
+
+				logboek.LogErrorF("WARNING %s\n", mripart3)
+				fmt.Printf("%s\n", mripart4)
 				logboek.LogErrorF("WARNING ###########################################################################\n")
-			}
-		}()
+			}()
+		}
+
+		_ = setObjectAnnotation(target.Object, repairPatchAnnotation, string(repairPatchData))
 	}
 
 	patch, patchType, err := createPatch(target, originalObj)
@@ -1132,6 +1171,135 @@ func updateResource(c *Client, target *resource.Info, currentObj, originalObj ru
 		}
 	}
 	return nil
+}
+
+func filterResourceData(data []byte, isReplicasOnlyOnCreation, isResourcesOnlyOnCreation bool) []byte {
+	updatedData := processResourceReplicasAndResources(data, func(node map[string]interface{}, field string) {
+		if field == "replicas" && isReplicasOnlyOnCreation || field == "resources" && isResourcesOnlyOnCreation {
+			delete(node, field)
+		}
+	})
+
+	return updatedData
+}
+
+func checkRepairPatchData(data []byte) []string {
+	var ignoreInstructions []string
+
+	_ = processResourceReplicasAndResources(data, func(node map[string]interface{}, field string) {
+		var fieldPath, annoName string
+
+		if field == "replicas" {
+			fieldPath = fmt.Sprintf("spec.%s", field)
+			annoName = SetReplicasOnlyOnCreationAnnotation
+		} else { // "resources"
+			fieldPath = fmt.Sprintf("*.%s", field)
+			annoName = SetResourcesOnlyOnCreationAnnotation
+		}
+
+		ignoreInstruction := fmt.Sprintf("To ignore %[1]s add '%[2]s: true' annotation to resource manually. Otherwise, use the option --add-annotation=%[2]s=true for adding annotation to all deploying resources", fieldPath, annoName)
+		ignoreInstructions = append(ignoreInstructions, ignoreInstruction)
+	})
+
+	if len(ignoreInstructions) != 0 {
+		ignoreInstructions = append([]string{"If you use HPA/VPA remove related fields from resource manifest"}, ignoreInstructions...)
+	}
+
+	return ignoreInstructions
+}
+
+func processResourceReplicasAndResources(resourceData []byte, processFieldFunc func(node map[string]interface{}, field string)) []byte {
+	res := map[string]interface{}{}
+	if err := json.Unmarshal(resourceData, &res); err != nil {
+		panic(err)
+	}
+
+	if spec, ok := res["spec"]; ok {
+		if specTyped, ok := spec.(map[string]interface{}); ok {
+			// process spec.replicas
+			if _, ok := specTyped["replicas"]; ok {
+				processFieldFunc(specTyped, "replicas")
+			}
+
+			// process spec.volumeClaimTemplates[*].spec.resources
+			if specVolumeClaimTemplates, ok := specTyped["volumeClaimTemplates"]; ok {
+				if specVolumeClaimTemplatesTyped, ok := specVolumeClaimTemplates.([]interface{}); ok {
+					for ind, volumeClaimTemplate := range specVolumeClaimTemplatesTyped {
+						if volumeClaimTemplateTyped, ok := volumeClaimTemplate.(map[string]interface{}); ok {
+							if _, ok := volumeClaimTemplateTyped["resources"]; ok {
+								processFieldFunc(volumeClaimTemplateTyped, "resources")
+							}
+
+							if len(volumeClaimTemplateTyped) == 0 {
+								specVolumeClaimTemplatesTyped = append(specVolumeClaimTemplatesTyped[:ind], specVolumeClaimTemplatesTyped[ind+1:]...)
+							}
+						}
+					}
+
+					if len(specVolumeClaimTemplatesTyped) == 0 {
+						delete(specTyped, "volumeClaimTemplates")
+					}
+				}
+			}
+
+			processSpecContainers := func(specTyped map[string]interface{}) {
+				if containers, ok := specTyped["containers"]; ok {
+					if containersTyped, ok := containers.([]interface{}); ok {
+						for ind, container := range containersTyped {
+							if containerTyped, ok := container.(map[string]interface{}); ok {
+								if _, ok := containerTyped["resources"]; ok {
+									processFieldFunc(containerTyped, "resources")
+								}
+
+								if len(containerTyped) == 0 {
+									containersTyped = append(containersTyped[:ind], containersTyped[ind+1:]...)
+								}
+							}
+						}
+
+						if len(containersTyped) == 0 {
+							delete(specTyped, "containers")
+						}
+					}
+				}
+			}
+
+			// process spec.containers[*].resources
+			processSpecContainers(specTyped)
+
+			// process spec.template.spec.containers[*].resources
+			if template, ok := specTyped["template"]; ok {
+				if templateTyped, ok := template.(map[string]interface{}); ok {
+					if templateSpec, ok := templateTyped["spec"]; ok {
+						if templateSpecTyped, ok := templateSpec.(map[string]interface{}); ok {
+							processSpecContainers(templateSpecTyped)
+
+							if len(templateSpecTyped) == 0 {
+								delete(templateTyped, "spec")
+							}
+						}
+					}
+
+					if len(templateTyped) == 0 {
+						delete(specTyped, "template")
+					}
+				}
+			}
+
+			if len(specTyped) == 0 {
+				delete(res, "spec")
+			}
+		}
+
+		updatedResourceData, err := json.Marshal(res)
+		if err != nil {
+			panic(err)
+		}
+
+		return updatedResourceData
+	} else {
+		return resourceData
+	}
 }
 
 func getSelectorFromObject(obj runtime.Object) (map[string]string, bool) {
