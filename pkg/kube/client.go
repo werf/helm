@@ -42,6 +42,7 @@ import (
 	apiextv1beta1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1"
 	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/api/errors"
+	resource_quantity "k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -70,9 +71,11 @@ const (
 	SetReplicasOnlyOnCreationAnnotation  = "werf.io/set-replicas-only-on-creation"
 	SetResourcesOnlyOnCreationAnnotation = "werf.io/set-resources-only-on-creation"
 
-	repairPatchAnnotation        = "debug.werf.io/repair-patch"
-	repairPatchErrorsAnnotation  = "debug.werf.io/repair-patch-errors"
-	repairInstructionsAnnotation = "debug.werf.io/repair-instructions"
+	repairPatchAnnotation       = "debug.werf.io/repair-patch"
+	repairPatchErrorsAnnotation = "debug.werf.io/repair-patch-errors"
+
+	// Repair messages may include: warnings, instructions and other messages related to repair process
+	repairMessagesAnnotation = "debug.werf.io/repair-messages"
 )
 
 // ErrNoObjectsVisited indicates that during a visit operation, no matching objects were found.
@@ -702,14 +705,6 @@ func deleteResource(info *resource.Info) error {
 	return err
 }
 
-func applyPatch(target *resource.Info, current runtime.Object, patch []byte) ([]byte, error) {
-	oldData, err := json.Marshal(current)
-	if err != nil {
-		return nil, fmt.Errorf("serializing current configuration: %s", err)
-	}
-	return applyPatchForData(target, oldData, patch)
-}
-
 func applyPatchForData(target *resource.Info, oldData, patch []byte) ([]byte, error) {
 	if len(patch) == 0 || string(patch) == "{}" {
 		return oldData, nil
@@ -742,16 +737,33 @@ func applyPatchForData(target *resource.Info, oldData, patch []byte) ([]byte, er
 		if err := json.Unmarshal(oldData, &oldDataMap); err != nil {
 			return nil, fmt.Errorf("unable to unmarshal json data: %s: %s", oldData, err)
 		}
+		//fmt.Printf("!!! oldDataMap: %#v\n", oldDataMap)
 
 		var patchMap strategicpatch.JSONMap
 		if err := json.Unmarshal(patch, &patchMap); err != nil {
 			return nil, fmt.Errorf("unable to unmarshal json patch: %s: %s", patch, err)
 		}
+		//fmt.Printf("!!! patchMap: %#v\n", patchMap)
 
+		//schema, err := strategicpatch.NewPatchMetaFromStruct(versionedObject)
+		//if err != nil {
+		//	return nil, err
+		//}
+
+		//resMap, err := strategicpatch.MergeStrategicMergeMapPatchUsingLookupPatchMeta(schema, oldDataMap, patchMap)
 		resMap, err := strategicpatch.StrategicMergeMapPatch(oldDataMap, patchMap, versionedObject)
 		if err != nil {
 			return nil, fmt.Errorf("failed to apply strategic merge patch: %s", err)
 		}
+		//res1, _ := json.Marshal(resMap)
+		//fmt.Printf("!!! res1:\n%s\n", res1)
+
+		//resMap2, err := strategicpatch.StrategicMergeMapPatch(oldDataMap, patchMap, versionedObject)
+		//if err != nil {
+		//	return nil, fmt.Errorf("failed to apply strategic merge patch: %s", err)
+		//}
+		//res2, _ := json.Marshal(resMap2)
+		//fmt.Printf("!!! res2:\n%s\n", res2)
 
 		res, err := json.Marshal(resMap)
 		if err != nil {
@@ -812,32 +824,300 @@ func createPatch(target *resource.Info, current runtime.Object) ([]byte, types.P
 	}
 }
 
-func createRepairPatch(target *resource.Info, currentObj, originalObj runtime.Object) ([]byte, types.PatchType, error) {
-	twoWayMergePatch, _, err := createPatch(target, originalObj)
-	if err != nil {
-		return nil, "", fmt.Errorf("unable to create two-way merge patch: %s", err)
-	}
+func debugUpdateResource() bool {
+	return os.Getenv("WERF_DEBUG_UPDATE_RESOURCE") == "1"
+}
 
+func createRepairPatch(target *resource.Info, currentObj, originalObj runtime.Object) ([]byte, types.PatchType, error) {
 	setReplicasOnlyOnCreationAnnoValue := getObjectAnnotation(target.Object, SetReplicasOnlyOnCreationAnnotation)
 	setResourcesOnlyOnCreationAnnoValue := getObjectAnnotation(target.Object, SetResourcesOnlyOnCreationAnnotation)
 
 	isReplicasOnlyOnCreation := setReplicasOnlyOnCreationAnnoValue == "true"
 	isResourcesOnlyOnCreation := setResourcesOnlyOnCreationAnnoValue == "true"
 
-	newCurrentData, err := applyPatch(target, currentObj, twoWayMergePatch)
+	currentData, err := json.Marshal(currentObj)
 	if err != nil {
-		return nil, "", fmt.Errorf("unable to construct new current state using two-way merge patch: %s", err)
+		return nil, "", fmt.Errorf("serializing current configuration: %s", err)
 	}
-
-	newCurrentData = filterResourceData(newCurrentData, isReplicasOnlyOnCreation, isResourcesOnlyOnCreation)
+	filteredCurrentData, err := filterManifestForRepairPatch(currentData, isReplicasOnlyOnCreation, isResourcesOnlyOnCreation)
+	if err != nil {
+		return nil, "", fmt.Errorf("unable to filter current manifest: %s", err)
+	}
+	if debugUpdateResource() {
+		fmt.Printf("-- currentData:\n%s\n", currentData)
+		fmt.Printf("-- filteredCurrentData:\n%s\n", filteredCurrentData)
+	}
 
 	targetData, err := json.Marshal(target.Object)
 	if err != nil {
 		return nil, "", fmt.Errorf("serializing target configuration: %s", err)
 	}
+	filteredTargetData, err := filterManifestForRepairPatch(targetData, isReplicasOnlyOnCreation, isResourcesOnlyOnCreation)
+	if err != nil {
+		return nil, "", fmt.Errorf("unable to filter target manifest: %s", err)
+	}
+	if debugUpdateResource() {
+		fmt.Printf("-- targetData:\n%s\n", targetData)
+		fmt.Printf("-- filteredTargetData:\n%s\n", filteredTargetData)
+	}
 
-	targetData = filterResourceData(targetData, isReplicasOnlyOnCreation, isResourcesOnlyOnCreation)
+	helmApplyPatch, _, err := createPatch(target, originalObj)
+	if err != nil {
+		return nil, "", fmt.Errorf("unable to create helm-apply two-way merge patch: %s", err)
+	}
+	if debugUpdateResource() {
+		fmt.Printf("-- helmApplyPatch (2 way: previous chart version -> current chart version):\n%s\n", helmApplyPatch)
+	}
 
+	if debugUpdateResource() {
+		originalData, err := json.Marshal(originalObj)
+		if err != nil {
+			return nil, types.StrategicMergePatchType, fmt.Errorf("serializing original configuration: %s", err)
+		}
+		threeWayPatch, _, err := createThreeWayMergePatch(target, originalData, targetData, currentData)
+		fmt.Printf("-- threeWayPatch (default kubectl-apply patch) (err=%s):\n%s\n", err, threeWayPatch)
+	}
+
+	currentDataAfterHelmApply, err := applyPatchForData(target, filteredCurrentData, helmApplyPatch)
+	if err != nil {
+		return nil, "", fmt.Errorf("unable to construct new current state using helm-apply two-way merge patch: %s", err)
+	}
+	// Filter is needed because helmApplyPatch was created as in helm without filters to target and original
+	filteredCurrentDataAfterHelmApply, err := filterManifestForRepairPatch(currentDataAfterHelmApply, isReplicasOnlyOnCreation, isResourcesOnlyOnCreation)
+	if err != nil {
+		return nil, "", fmt.Errorf("unable to filter current manifest after helm apply: %s", err)
+	}
+	if debugUpdateResource() {
+		fmt.Printf("-- currentDataAfterHelmApply:\n%s\n", currentDataAfterHelmApply)
+		fmt.Printf("-- filteredCurrentDataAfterHelmApply:\n%s\n", filteredCurrentDataAfterHelmApply)
+	}
+
+	firstStageRepairPatch, _, err := createThreeWayMergePatch(target, filteredTargetData, filteredTargetData, filteredCurrentDataAfterHelmApply)
+	if err != nil {
+		return nil, "", fmt.Errorf("unable to create first stage repair three-way-merge patch: %s", err)
+	}
+	filteredFirstStageRepairPatch, err := filterRepairPatch(firstStageRepairPatch)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to filter first stage repair patch: %s", err)
+	}
+	if debugUpdateResource() {
+		fmt.Printf("-- firstStageRepairPatch:\n%s\n", firstStageRepairPatch)
+		fmt.Printf("-- filteredFirstStageRepairPatch:\n%s\n", filteredFirstStageRepairPatch)
+	}
+
+	currentDataAfterFirstStageRepair, err := applyPatchForData(target, filteredCurrentDataAfterHelmApply, filteredFirstStageRepairPatch)
+	if err != nil {
+		return nil, "", fmt.Errorf("unable to construct new current state using first stage repair three-way-merge patch: %s", err)
+	}
+	if debugUpdateResource() {
+		fmt.Printf("-- currentDataAfterFirstStageRepair:\n%s\n", currentDataAfterFirstStageRepair)
+	}
+
+	repairPatch, repairPatchType, err := createThreeWayMergePatch(target, filteredCurrentDataAfterHelmApply, currentDataAfterFirstStageRepair, filteredCurrentDataAfterHelmApply)
+	if err != nil {
+		return nil, "", fmt.Errorf("unable to create second stage repair three-way-merge patch: %s", err)
+	}
+	if debugUpdateResource() {
+		fmt.Printf("-- repairPatch:\n%s\n", repairPatch)
+	}
+
+	filteredRepairPatch, err := filterRepairPatch(repairPatch)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to filter repair patch: %s", err)
+	}
+	if debugUpdateResource() {
+		fmt.Printf("-- filteredRepairPatch:\n%s\n", filteredRepairPatch)
+	}
+
+	return filteredRepairPatch, repairPatchType, nil
+}
+
+func filterManifestForRepairPatch(manifest []byte, isReplicasOnlyOnCreation, isResourcesOnlyOnCreation bool) ([]byte, error) {
+	var dataMap map[string]interface{}
+	if err := json.Unmarshal(manifest, &dataMap); err != nil {
+		return nil, fmt.Errorf("unable to unmarshal manifest json: %s", err)
+	}
+
+	// Remove empty (null or "") container env "value" fields
+	if specI, hasKey := dataMap["spec"]; hasKey {
+		spec := specI.(map[string]interface{})
+		if templateI, hasKey := spec["template"]; hasKey {
+			template := templateI.(map[string]interface{})
+			if specI, hasKey := template["spec"]; hasKey {
+				spec := specI.(map[string]interface{})
+				if containersI, hasKey := spec["containers"]; hasKey {
+					containers := containersI.([]interface{})
+					for _, containerI := range containers {
+						container := containerI.(map[string]interface{})
+
+						if envI, hasKey := container["env"]; hasKey {
+							env := envI.([]interface{})
+							for _, envElemI := range env {
+								envElem := envElemI.(map[string]interface{})
+								if valueI, hasKey := envElem["value"]; hasKey {
+									if valueI == nil {
+										delete(envElem, "value")
+									} else {
+										value := valueI.(string)
+										if value == "" {
+											delete(envElem, "value")
+										}
+									}
+								}
+							}
+						}
+
+						if resourcesI, hasKey := container["resources"]; hasKey {
+							resources := resourcesI.(map[string]interface{})
+
+							for _, resourcesGroupName := range []string{"limits", "requests"} {
+								if settingsI, hasKey := resources[resourcesGroupName]; hasKey {
+									settings := settingsI.(map[string]interface{})
+
+									for _, resourceName := range []string{"cpu", "memory", "storage", "ephemeral-storage"} {
+										if rawQuantityI, hasKey := settings[resourceName]; hasKey {
+											rawQuantity := rawQuantityI.(string)
+											if q, err := resource_quantity.ParseQuantity(rawQuantity); err == nil {
+												settings[resourceName] = q.String()
+											}
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Remove "volumeClaimTemplates" because it is forbidden to change this field in a patch.
+	if specI, hasKey := dataMap["spec"]; hasKey {
+		spec := specI.(map[string]interface{})
+		if _, hasKey := spec["volumeClaimTemplates"]; hasKey {
+			delete(spec, "volumeClaimTemplates")
+		}
+	}
+
+	dataMap = processResourceReplicasAndResources(dataMap, func(node map[string]interface{}, field string) {
+		if field == "replicas" && isReplicasOnlyOnCreation || field == "resources" && isResourcesOnlyOnCreation {
+			delete(node, field)
+		}
+	})
+
+	newManifest, err := json.Marshal(dataMap)
+	if err != nil {
+		return nil, fmt.Errorf("unable to marshal new manifest json: %s", err)
+	}
+
+	return newManifest, nil
+}
+
+func filterRepairPatch(patch []byte) ([]byte, error) {
+	return patch, nil
+
+	// TODO: It is possible that repair patch filtration will be needed to overcome false-positive repair patches.
+	//var dataMap strategicpatch.JSONMap
+	//if err := json.Unmarshal(patch, &dataMap); err != nil {
+	//	return nil, fmt.Errorf("unable to unmarshal patch json: %s", err)
+	//}
+	//
+	//// Remove all "$setElementOrder" directives
+	//if specI, hasKey := dataMap["spec"]; hasKey {
+	//	spec := specI.(map[string]interface{})
+	//	if templateI, hasKey := spec["template"]; hasKey {
+	//		template := templateI.(map[string]interface{})
+	//		if specI, hasKey := template["spec"]; hasKey {
+	//			spec := specI.(map[string]interface{})
+	//
+	//			if _, hasKey := spec["$setElementOrder/containers"]; hasKey {
+	//				delete(spec, "$setElementOrder/containers")
+	//			}
+	//
+	//			if containersI, hasKey := spec["containers"]; hasKey {
+	//				containers := containersI.([]interface{})
+	//				newContainers := make([]interface{}, 0)
+	//
+	//				for _, containerI := range containers {
+	//					container := containerI.(map[string]interface{})
+	//
+	//					if _, hasKey := container["$setElementOrder/env"]; hasKey {
+	//						delete(container, "$setElementOrder/env")
+	//					}
+	//
+	//					//if envI, hasKey := container["env"]; hasKey {
+	//					//	env := envI.([]interface{})
+	//					//	for _, envElemI := range env {
+	//					//		envElem := envElemI.(map[string]interface{})
+	//					//		if valueI, hasKey := envElem["value"]; hasKey {
+	//					//			value := valueI.(string)
+	//					//			if value == "" {
+	//					//				delete(envElem, "value")
+	//					//			}
+	//					//		}
+	//					//	}
+	//					//}
+	//
+	//					if len(container) > 0 {
+	//						newContainers = append(newContainers, containerI)
+	//					}
+	//				}
+	//
+	//				delete(spec, "containers")
+	//				if len(newContainers) > 0 {
+	//					spec["containers"] = newContainers
+	//				}
+	//			}
+	//
+	//			if len(spec) == 0 {
+	//				delete(template, "spec")
+	//			}
+	//		}
+	//
+	//		if len(template) == 0 {
+	//			delete(spec, "template")
+	//		}
+	//	}
+	//
+	//	if len(spec) == 0 {
+	//		delete(dataMap, "spec")
+	//	}
+	//}
+	//
+	//// remove spec.strategy.$retainKeys[].type directive
+	////if specI, hasKey := dataMap["spec"]; hasKey {
+	////	spec := specI.(map[string]interface{})
+	////	if strategyI, hasKey := spec["strategy"]; hasKey {
+	////		strategy := strategyI.(map[string]interface{})
+	////
+	////		if retainKeysI, hasKey := strategy["$retainKeys"]; hasKey {
+	////			retainKeys := retainKeysI.([]interface{})
+	////			newRetainKeys := make([]interface{}, 0)
+	////
+	////			for _, retainKeyI := range retainKeys {
+	////				retainKey := retainKeyI.(string)
+	////				if retainKey != "type" {
+	////					newRetainKeys = append(newRetainKeys, retainKeyI)
+	////				}
+	////			}
+	////
+	////			delete(strategy, "$retainKeys")
+	////			if len(newRetainKeys) > 0 {
+	////				strategy["$retainKeys"] = newRetainKeys
+	////			}
+	////		}
+	////	}
+	////}
+	//
+	//newPatch, err := json.Marshal(dataMap)
+	//if err != nil {
+	//	return nil, fmt.Errorf("unable to marshal new patch json: %s", err)
+	//}
+	//
+	//return newPatch, nil
+}
+
+func createThreeWayMergePatch(target *resource.Info, original, modified, current []byte) ([]byte, types.PatchType, error) {
 	var patchType types.PatchType
 	var patch []byte
 	var lookupPatchMeta strategicpatch.LookupPatchMeta
@@ -858,22 +1138,22 @@ func createRepairPatch(target *resource.Info, currentObj, originalObj runtime.Ob
 			mergepatch.RequireKeyUnchanged("kind"), mergepatch.RequireMetadataKeyUnchanged("name")}
 
 		// fall back to generic JSON merge patch
-		patch, err = jsonmergepatch.CreateThreeWayJSONMergePatch(targetData, targetData, newCurrentData, preconditions...)
+		patch, err = jsonmergepatch.CreateThreeWayJSONMergePatch(original, modified, current, preconditions...)
 		if err != nil {
 			if mergepatch.IsPreconditionFailed(err) {
 				return nil, "", fmt.Errorf("%s", "At least one of apiVersion, kind and name was changed")
 			}
-			return nil, "", cmdutil.AddSourceToErr(fmt.Sprintf(createPatchErrFormat, targetData, targetData, newCurrentData), target.Source, err)
+			return nil, "", cmdutil.AddSourceToErr(fmt.Sprintf(createPatchErrFormat, original, modified, current), target.Source, err)
 		}
 	case err != nil:
 		return nil, "", cmdutil.AddSourceToErr(fmt.Sprintf("getting instance of versioned object for %v:", target.Mapping.GroupVersionKind), target.Source, err)
 	default:
 		lookupPatchMeta, err = strategicpatch.NewPatchMetaFromStruct(versionedObject)
 		if err != nil {
-			return nil, "", cmdutil.AddSourceToErr(fmt.Sprintf(createPatchErrFormat, targetData, targetData, newCurrentData), target.Source, err)
+			return nil, "", cmdutil.AddSourceToErr(fmt.Sprintf(createPatchErrFormat, original, modified, current), target.Source, err)
 		}
 
-		patch, err = strategicpatch.CreateThreeWayMergePatch(targetData, targetData, newCurrentData, lookupPatchMeta, true)
+		patch, err = strategicpatch.CreateThreeWayMergePatch(original, modified, current, lookupPatchMeta, true)
 		if err != nil {
 			return nil, types.StrategicMergePatchType, fmt.Errorf("failed to create two-way merge patch: %v", err)
 		}
@@ -890,7 +1170,7 @@ func updateResource(c *Client, target *resource.Info, currentObj, originalObj ru
 	} else {
 		isRepairPatchEmpty := len(repairPatchData) == 0 || string(repairPatchData) == "{}"
 		if !isRepairPatchEmpty {
-			var repairInstructions []string
+			var repairMessages []string
 
 			// main repair instruction parts
 			mripart1 := fmt.Sprintf("%s named %s state is inconsistent with chart configuration state!", target.Mapping.GroupVersionKind.Kind, target.Name)
@@ -898,28 +1178,35 @@ func updateResource(c *Client, target *resource.Info, currentObj, originalObj ru
 			mripart3 := "Execute the following command manually to repair resource state:"
 			mripart4 := fmt.Sprintf("kubectl -n %s patch %s %s -p '%s'", target.Namespace, target.Mapping.GroupVersionKind.Kind, target.Name, repairPatchData)
 
-			repairInstructions = append(repairInstructions, strings.Join([]string{
+			repairMessages = append(repairMessages, strings.Join([]string{
 				mripart1,
+			}, "\n"))
+
+			repairPatchWarnings, err := checkRepairPatchForWarnings(repairPatchData)
+			if err != nil {
+				logboek.LogErrorF("WARNING repair patch warnings check failed: %s\n", err)
+				_ = setObjectAnnotation(target.Object, repairPatchErrorsAnnotation, err.Error())
+			}
+			repairMessages = append(repairMessages, repairPatchWarnings...)
+
+			repairMessages = append(repairMessages, strings.Join([]string{
 				mripart2,
 				mripart3,
 				mripart4,
 			}, "\n"))
 
-			ignoreInstructions := checkRepairPatchData(repairPatchData)
-			repairInstructions = append(repairInstructions, ignoreInstructions...)
-
-			repairInstructionJsonData, _ := json.Marshal(repairInstructions)
-			_ = setObjectAnnotation(target.Object, repairInstructionsAnnotation, string(repairInstructionJsonData))
+			repairMessagesJsonData, _ := json.Marshal(repairMessages)
+			_ = setObjectAnnotation(target.Object, repairMessagesAnnotation, string(repairMessagesJsonData))
 
 			defer func() {
 				logboek.LogErrorF("WARNING ###########################################################################\n")
 				logboek.LogErrorF("WARNING %s\n", mripart1)
-				logboek.LogErrorF("WARNING %s\n", mripart2)
 
-				for _, instruction := range ignoreInstructions {
-					logboek.LogErrorF(fmt.Sprintf("WARNING %s\n", instruction))
+				for _, msg := range repairPatchWarnings {
+					logboek.LogErrorF(fmt.Sprintf("WARNING %s\n", msg))
 				}
 
+				logboek.LogErrorF("WARNING %s\n", mripart2)
 				logboek.LogErrorF("WARNING %s\n", mripart3)
 				fmt.Printf("%s\n", mripart4)
 				logboek.LogErrorF("WARNING ###########################################################################\n")
@@ -1010,48 +1297,36 @@ func updateResource(c *Client, target *resource.Info, currentObj, originalObj ru
 	return nil
 }
 
-func filterResourceData(data []byte, isReplicasOnlyOnCreation, isResourcesOnlyOnCreation bool) []byte {
-	updatedData := processResourceReplicasAndResources(data, func(node map[string]interface{}, field string) {
-		if field == "replicas" && isReplicasOnlyOnCreation || field == "resources" && isResourcesOnlyOnCreation {
-			delete(node, field)
-		}
-	})
-
-	return updatedData
-}
-
-func checkRepairPatchData(data []byte) []string {
+func checkRepairPatchForWarnings(patch []byte) ([]string, error) {
 	var ignoreInstructions []string
 
-	_ = processResourceReplicasAndResources(data, func(node map[string]interface{}, field string) {
-		var fieldPath, annoName string
+	var patchDataMap strategicpatch.JSONMap
+	if err := json.Unmarshal(patch, &patchDataMap); err != nil {
+		return nil, fmt.Errorf("unable to unmarshal patch json: %s", err)
+	}
+
+	_ = processResourceReplicasAndResources(patchDataMap, func(node map[string]interface{}, field string) {
+		var fieldPath, annoName, autoscalerName string
 
 		if field == "replicas" {
 			fieldPath = fmt.Sprintf("spec.%s", field)
 			annoName = SetReplicasOnlyOnCreationAnnotation
+			autoscalerName = "HPA"
 		} else { // "resources"
 			fieldPath = fmt.Sprintf("*.%s", field)
 			annoName = SetResourcesOnlyOnCreationAnnotation
+			autoscalerName = "VPA"
 		}
 
-		ignoreInstruction := fmt.Sprintf("To ignore %[1]s add '%[2]s: true' annotation to resource manually. Otherwise, use the option --add-annotation=%[2]s=true for adding annotation to all deploying resources", fieldPath, annoName)
-		ignoreInstructions = append(ignoreInstructions, ignoreInstruction)
+		ignoreInstructions = append(ignoreInstructions, fmt.Sprintf("Detected %s field change in the kubernetes live object state! If you use %s autoscaler then remove this field from the resource manifest configuration of the chart.", fieldPath, autoscalerName))
+		ignoreInstructions = append(ignoreInstructions, fmt.Sprintf("Otherwise, to ignore field %[1]s changes in the kubernetes live object state add '\"%[2]s\": \"true\"' annotation to the resource manifest configuration of the chart, or use the option --add-annotation=%[2]s=true for adding annotation to all deploying resources.", fieldPath, annoName))
 	})
 
-	if len(ignoreInstructions) != 0 {
-		ignoreInstructions = append([]string{"If you use HPA/VPA remove related fields from resource manifest"}, ignoreInstructions...)
-	}
-
-	return ignoreInstructions
+	return ignoreInstructions, nil
 }
 
-func processResourceReplicasAndResources(resourceData []byte, processFieldFunc func(node map[string]interface{}, field string)) []byte {
-	res := map[string]interface{}{}
-	if err := json.Unmarshal(resourceData, &res); err != nil {
-		panic(err)
-	}
-
-	if spec, ok := res["spec"]; ok {
+func processResourceReplicasAndResources(manifestDataMap map[string]interface{}, processFieldFunc func(node map[string]interface{}, field string)) map[string]interface{} {
+	if spec, ok := manifestDataMap["spec"]; ok {
 		if specTyped, ok := spec.(map[string]interface{}); ok {
 			// process spec.replicas
 			if _, ok := specTyped["replicas"]; ok {
@@ -1124,19 +1399,12 @@ func processResourceReplicasAndResources(resourceData []byte, processFieldFunc f
 			}
 
 			if len(specTyped) == 0 {
-				delete(res, "spec")
+				delete(manifestDataMap, "spec")
 			}
 		}
-
-		updatedResourceData, err := json.Marshal(res)
-		if err != nil {
-			panic(err)
-		}
-
-		return updatedResourceData
-	} else {
-		return resourceData
 	}
+
+	return manifestDataMap
 }
 
 func getSelectorFromObject(obj runtime.Object) (map[string]string, bool) {
