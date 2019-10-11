@@ -958,8 +958,8 @@ func filterManifestForRepairPatch(manifest []byte, isReplicasOnlyOnCreation, isR
 									if valueI == nil {
 										delete(envElem, "value")
 									} else {
-										value := valueI.(string)
-										if value == "" {
+										valueStr := fmt.Sprintf("%v", valueI)
+										if valueStr == "" {
 											delete(envElem, "value")
 										}
 									}
@@ -976,8 +976,8 @@ func filterManifestForRepairPatch(manifest []byte, isReplicasOnlyOnCreation, isR
 
 									for _, resourceName := range []string{"cpu", "memory", "storage", "ephemeral-storage"} {
 										if rawQuantityI, hasKey := settings[resourceName]; hasKey {
-											rawQuantity := rawQuantityI.(string)
-											if q, err := resource_quantity.ParseQuantity(rawQuantity); err == nil {
+											rawQuantityStr := fmt.Sprintf("%v", rawQuantityI)
+											if q, err := resource_quantity.ParseQuantity(rawQuantityStr); err == nil {
 												settings[resourceName] = q.String()
 											}
 										}
