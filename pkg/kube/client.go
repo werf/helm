@@ -932,68 +932,85 @@ func createRepairPatch(target *resource.Info, currentObj, originalObj runtime.Ob
 	return filteredRepairPatch, repairPatchType, nil
 }
 
+func getMapByKey(dataMap map[string]interface{}, key string) map[string]interface{} {
+	if valueI, hasKey := dataMap[key]; hasKey {
+		if value, ok := valueI.(map[string]interface{}); ok {
+			return value
+		}
+	}
+	return nil
+}
+
+func getSliceByKey(dataMap map[string]interface{}, key string) []interface{} {
+	if valueI, hasKey := dataMap[key]; hasKey {
+		if value, ok := valueI.([]interface{}); ok {
+			return value
+		}
+	}
+	return nil
+}
+
+func getMapByIndex(dataSlice []interface{}, index int) map[string]interface{} {
+	if index < len(dataSlice) && index >= 0 {
+		valueI := dataSlice[index]
+		if value, ok := valueI.(map[string]interface{}); ok {
+			return value
+		}
+	}
+	return nil
+}
+
 func filterManifestForRepairPatch(manifest []byte, isReplicasOnlyOnCreation, isResourcesOnlyOnCreation bool) ([]byte, error) {
 	var dataMap map[string]interface{}
 	if err := json.Unmarshal(manifest, &dataMap); err != nil {
 		return nil, fmt.Errorf("unable to unmarshal manifest json: %s", err)
 	}
 
-	// Remove empty (null or "") container env "value" fields
-	if specI, hasKey := dataMap["spec"]; hasKey {
-		spec := specI.(map[string]interface{})
-		if templateI, hasKey := spec["template"]; hasKey {
-			template := templateI.(map[string]interface{})
-			if specI, hasKey := template["spec"]; hasKey {
-				spec := specI.(map[string]interface{})
-				if containersI, hasKey := spec["containers"]; hasKey {
-					containers := containersI.([]interface{})
-					for _, containerI := range containers {
-						container := containerI.(map[string]interface{})
-
-						if envI, hasKey := container["env"]; hasKey {
-							env := envI.([]interface{})
-							for _, envElemI := range env {
-								envElem := envElemI.(map[string]interface{})
-								if valueI, hasKey := envElem["value"]; hasKey {
-									if valueI == nil {
-										delete(envElem, "value")
-									} else {
-										valueStr := fmt.Sprintf("%v", valueI)
-										if valueStr == "" {
+	if spec := getMapByKey(dataMap, "spec"); spec != nil {
+		if template := getMapByKey(spec, "template"); template != nil {
+			if spec := getMapByKey(template, "spec"); spec != nil {
+				if containers := getSliceByKey(spec, "containers"); containers != nil {
+					for i := range containers {
+						if container := getMapByIndex(containers, i); container != nil {
+							// Remove empty (null or "") container env "value" fields
+							if env := getSliceByKey(container, "env"); env != nil {
+								for i := range env {
+									if envElem := getMapByIndex(env, i); envElem != nil {
+										valueI := envElem["value"]
+										if valueI == nil {
 											delete(envElem, "value")
-										}
-									}
-								}
-							}
-						}
-
-						if resourcesI, hasKey := container["resources"]; hasKey {
-							resources := resourcesI.(map[string]interface{})
-
-							for _, resourcesGroupName := range []string{"limits", "requests"} {
-								if settingsI, hasKey := resources[resourcesGroupName]; hasKey {
-									settings := settingsI.(map[string]interface{})
-
-									for _, resourceName := range []string{"cpu", "memory", "storage", "ephemeral-storage"} {
-										if rawQuantityI, hasKey := settings[resourceName]; hasKey {
-											rawQuantityStr := fmt.Sprintf("%v", rawQuantityI)
-											if q, err := resource_quantity.ParseQuantity(rawQuantityStr); err == nil {
-												settings[resourceName] = q.String()
+										} else {
+											valueStr := fmt.Sprintf("%v", valueI)
+											if valueStr == "" {
+												delete(envElem, "value")
 											}
 										}
 									}
 								}
-							}
+							} // env
+
+							// Normalize resources quantity values
+							if resources := getMapByKey(container, "resources"); resources != nil {
+								for _, resourcesGroupName := range []string{"limits", "requests"} {
+									if settings := getMapByKey(resources, resourcesGroupName); settings != nil {
+										for _, resourceName := range []string{"cpu", "memory", "storage", "ephemeral-storage"} {
+											if rawQuantityI, hasKey := settings[resourceName]; hasKey {
+												rawQuantityStr := fmt.Sprintf("%v", rawQuantityI)
+												if q, err := resource_quantity.ParseQuantity(rawQuantityStr); err == nil {
+													settings[resourceName] = q.String()
+												}
+											}
+										}
+									}
+								}
+							} // resources
 						}
 					}
 				}
 			}
 		}
-	}
 
-	// Remove "volumeClaimTemplates" because it is forbidden to change this field in a patch.
-	if specI, hasKey := dataMap["spec"]; hasKey {
-		spec := specI.(map[string]interface{})
+		// Remove "volumeClaimTemplates" because it is forbidden to change this field in a patch
 		if _, hasKey := spec["volumeClaimTemplates"]; hasKey {
 			delete(spec, "volumeClaimTemplates")
 		}
@@ -1014,107 +1031,8 @@ func filterManifestForRepairPatch(manifest []byte, isReplicasOnlyOnCreation, isR
 }
 
 func filterRepairPatch(patch []byte) ([]byte, error) {
+	// NOTICE It is possible that repair patch filtration will be needed to overcome false-positive repair patches
 	return patch, nil
-
-	// TODO: It is possible that repair patch filtration will be needed to overcome false-positive repair patches.
-	//var dataMap strategicpatch.JSONMap
-	//if err := json.Unmarshal(patch, &dataMap); err != nil {
-	//	return nil, fmt.Errorf("unable to unmarshal patch json: %s", err)
-	//}
-	//
-	//// Remove all "$setElementOrder" directives
-	//if specI, hasKey := dataMap["spec"]; hasKey {
-	//	spec := specI.(map[string]interface{})
-	//	if templateI, hasKey := spec["template"]; hasKey {
-	//		template := templateI.(map[string]interface{})
-	//		if specI, hasKey := template["spec"]; hasKey {
-	//			spec := specI.(map[string]interface{})
-	//
-	//			if _, hasKey := spec["$setElementOrder/containers"]; hasKey {
-	//				delete(spec, "$setElementOrder/containers")
-	//			}
-	//
-	//			if containersI, hasKey := spec["containers"]; hasKey {
-	//				containers := containersI.([]interface{})
-	//				newContainers := make([]interface{}, 0)
-	//
-	//				for _, containerI := range containers {
-	//					container := containerI.(map[string]interface{})
-	//
-	//					if _, hasKey := container["$setElementOrder/env"]; hasKey {
-	//						delete(container, "$setElementOrder/env")
-	//					}
-	//
-	//					//if envI, hasKey := container["env"]; hasKey {
-	//					//	env := envI.([]interface{})
-	//					//	for _, envElemI := range env {
-	//					//		envElem := envElemI.(map[string]interface{})
-	//					//		if valueI, hasKey := envElem["value"]; hasKey {
-	//					//			value := valueI.(string)
-	//					//			if value == "" {
-	//					//				delete(envElem, "value")
-	//					//			}
-	//					//		}
-	//					//	}
-	//					//}
-	//
-	//					if len(container) > 0 {
-	//						newContainers = append(newContainers, containerI)
-	//					}
-	//				}
-	//
-	//				delete(spec, "containers")
-	//				if len(newContainers) > 0 {
-	//					spec["containers"] = newContainers
-	//				}
-	//			}
-	//
-	//			if len(spec) == 0 {
-	//				delete(template, "spec")
-	//			}
-	//		}
-	//
-	//		if len(template) == 0 {
-	//			delete(spec, "template")
-	//		}
-	//	}
-	//
-	//	if len(spec) == 0 {
-	//		delete(dataMap, "spec")
-	//	}
-	//}
-	//
-	//// remove spec.strategy.$retainKeys[].type directive
-	////if specI, hasKey := dataMap["spec"]; hasKey {
-	////	spec := specI.(map[string]interface{})
-	////	if strategyI, hasKey := spec["strategy"]; hasKey {
-	////		strategy := strategyI.(map[string]interface{})
-	////
-	////		if retainKeysI, hasKey := strategy["$retainKeys"]; hasKey {
-	////			retainKeys := retainKeysI.([]interface{})
-	////			newRetainKeys := make([]interface{}, 0)
-	////
-	////			for _, retainKeyI := range retainKeys {
-	////				retainKey := retainKeyI.(string)
-	////				if retainKey != "type" {
-	////					newRetainKeys = append(newRetainKeys, retainKeyI)
-	////				}
-	////			}
-	////
-	////			delete(strategy, "$retainKeys")
-	////			if len(newRetainKeys) > 0 {
-	////				strategy["$retainKeys"] = newRetainKeys
-	////			}
-	////		}
-	////	}
-	////}
-	//
-	//newPatch, err := json.Marshal(dataMap)
-	//if err != nil {
-	//	return nil, fmt.Errorf("unable to marshal new patch json: %s", err)
-	//}
-	//
-	//return newPatch, nil
 }
 
 func createThreeWayMergePatch(target *resource.Info, original, modified, current []byte) ([]byte, types.PatchType, error) {
