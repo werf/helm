@@ -71,11 +71,16 @@ const (
 	SetReplicasOnlyOnCreationAnnotation  = "werf.io/set-replicas-only-on-creation"
 	SetResourcesOnlyOnCreationAnnotation = "werf.io/set-resources-only-on-creation"
 
-	repairPatchAnnotation       = "debug.werf.io/repair-patch"
-	repairPatchErrorsAnnotation = "debug.werf.io/repair-patch-errors"
+	repairPatchAnnotation        = "debug.werf.io/repair-patch"
+	repairPatchErrorsAnnotation  = "debug.werf.io/repair-patch-errors"
+	validationWarningsAnnotation = "debug.werf.io/validation-messages"
 
 	// Repair messages may include: warnings, instructions and other messages related to repair process
 	repairMessagesAnnotation = "debug.werf.io/repair-messages"
+)
+
+var (
+	repairDebugMessages []string
 )
 
 // ErrNoObjectsVisited indicates that during a visit operation, no matching objects were found.
@@ -828,7 +833,7 @@ func debugUpdateResource() bool {
 	return os.Getenv("WERF_DEBUG_UPDATE_RESOURCE") == "1"
 }
 
-func createRepairPatch(target *resource.Info, currentObj, originalObj runtime.Object) ([]byte, types.PatchType, error) {
+func createRepairPatch(c *Client, target *resource.Info, currentObj, originalObj runtime.Object) ([]byte, types.PatchType, error) {
 	setReplicasOnlyOnCreationAnnoValue := getObjectAnnotation(target.Object, SetReplicasOnlyOnCreationAnnotation)
 	setResourcesOnlyOnCreationAnnoValue := getObjectAnnotation(target.Object, SetResourcesOnlyOnCreationAnnotation)
 
@@ -872,7 +877,7 @@ func createRepairPatch(target *resource.Info, currentObj, originalObj runtime.Ob
 	if debugUpdateResource() {
 		originalData, err := json.Marshal(originalObj)
 		if err != nil {
-			return nil, types.StrategicMergePatchType, fmt.Errorf("serializing original configuration: %s", err)
+			return nil, "", fmt.Errorf("serializing original configuration: %s", err)
 		}
 		threeWayPatch, _, err := createThreeWayMergePatch(target, originalData, targetData, currentData)
 		fmt.Printf("-- threeWayPatch (default kubectl-apply patch) (err=%s):\n%s\n", err, threeWayPatch)
@@ -887,9 +892,14 @@ func createRepairPatch(target *resource.Info, currentObj, originalObj runtime.Ob
 	if err != nil {
 		return nil, "", fmt.Errorf("unable to filter current manifest after helm apply: %s", err)
 	}
+	validatedFilteredCurrentDataAfterHelmApply, err := makeValidatedManifest(target, filteredCurrentDataAfterHelmApply)
+	if err != nil {
+		return nil, "", fmt.Errorf("unable to construct validated manifest for current state after helm-apply two-way merge patch: %s", err)
+	}
 	if debugUpdateResource() {
 		fmt.Printf("-- currentDataAfterHelmApply:\n%s\n", currentDataAfterHelmApply)
 		fmt.Printf("-- filteredCurrentDataAfterHelmApply:\n%s\n", filteredCurrentDataAfterHelmApply)
+		fmt.Printf("-- validatedFilteredCurrentDataAfterHelmApply:\n%s\n", validatedFilteredCurrentDataAfterHelmApply)
 	}
 
 	firstStageRepairPatch, _, err := createThreeWayMergePatch(target, filteredTargetData, filteredTargetData, filteredCurrentDataAfterHelmApply)
@@ -909,27 +919,86 @@ func createRepairPatch(target *resource.Info, currentObj, originalObj runtime.Ob
 	if err != nil {
 		return nil, "", fmt.Errorf("unable to construct new current state using first stage repair three-way-merge patch: %s", err)
 	}
+	validatedCurrentDataAfterFirstStageRepair, err := makeValidatedManifest(target, currentDataAfterFirstStageRepair)
+	if err != nil {
+		return nil, "", fmt.Errorf("unable to construct validated manifest for current state after first stage repair three-way-merge patch: %s", err)
+	}
 	if debugUpdateResource() {
 		fmt.Printf("-- currentDataAfterFirstStageRepair:\n%s\n", currentDataAfterFirstStageRepair)
+		fmt.Printf("-- validatedCurrentDataAfterFirstStageRepair:\n%s\n", validatedCurrentDataAfterFirstStageRepair)
 	}
 
-	repairPatch, repairPatchType, err := createThreeWayMergePatch(target, filteredCurrentDataAfterHelmApply, currentDataAfterFirstStageRepair, filteredCurrentDataAfterHelmApply)
+	repairPatch, repairPatchType, err := createThreeWayMergePatch(target, validatedFilteredCurrentDataAfterHelmApply, validatedCurrentDataAfterFirstStageRepair, validatedFilteredCurrentDataAfterHelmApply)
 	if err != nil {
 		return nil, "", fmt.Errorf("unable to create second stage repair three-way-merge patch: %s", err)
 	}
-	if debugUpdateResource() {
-		fmt.Printf("-- repairPatch:\n%s\n", repairPatch)
-	}
-
 	filteredRepairPatch, err := filterRepairPatch(repairPatch)
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to filter repair patch: %s", err)
 	}
 	if debugUpdateResource() {
+		fmt.Printf("-- repairPatch:\n%s\n", repairPatch)
 		fmt.Printf("-- filteredRepairPatch:\n%s\n", filteredRepairPatch)
 	}
 
 	return filteredRepairPatch, repairPatchType, nil
+}
+
+func makeValidatedManifest(target *resource.Info, manifest []byte) ([]byte, error) {
+	var dataMap map[string]interface{}
+	if err := json.Unmarshal(manifest, &dataMap); err != nil {
+		return nil, fmt.Errorf("unable to unmarshal manifest json: %s", err)
+	}
+
+	// Create the versioned struct from the type defined in the restmapping
+	// (which is the API version we'll be submitting the patch to)
+	versionedObject, err := asVersioned(target)
+	if err != nil {
+		return manifest, nil
+	}
+
+	newObj := versionedObject.DeepCopyObject()
+
+	if err := runtime.DefaultUnstructuredConverter.FromUnstructured(dataMap, newObj); err != nil {
+		return nil, fmt.Errorf("object creation from unstructured manifest failed: %s", err)
+	}
+
+	newManifest, err := json.Marshal(newObj)
+	if err != nil {
+		return nil, fmt.Errorf("unable to marshal new manifest json: %s", err)
+	}
+
+	return newManifest, nil
+}
+
+func validateManifest(c *Client, manifest []byte) error {
+	schema, err := c.Validator(true)
+	if err != nil {
+		return fmt.Errorf("unable to create validator: %s", err)
+	}
+
+	if err := schema.ValidateBytes(manifest); err != nil {
+		var dataMap map[string]interface{}
+		if err := json.Unmarshal(manifest, &dataMap); err != nil {
+			return fmt.Errorf("unable to unmarshal manifest json: %s", err)
+		}
+
+		kind := ""
+		name := ""
+
+		if value, ok := dataMap["kind"].(string); ok {
+			kind = strings.ToLower(value)
+		}
+		if metadata := getMapByKey(dataMap, "metadata"); metadata != nil {
+			if value, ok := metadata["name"].(string); ok {
+				name = value
+			}
+		}
+
+		return fmt.Errorf("%s/%s: %s", kind, name, err)
+	}
+
+	return nil
 }
 
 func getMapByKey(dataMap map[string]interface{}, key string) map[string]interface{} {
@@ -1031,8 +1100,81 @@ func filterManifestForRepairPatch(manifest []byte, isReplicasOnlyOnCreation, isR
 }
 
 func filterRepairPatch(patch []byte) ([]byte, error) {
-	// NOTICE It is possible that repair patch filtration will be needed to overcome false-positive repair patches
-	return patch, nil
+	var dataMap map[string]interface{}
+	if err := json.Unmarshal(patch, &dataMap); err != nil {
+		return nil, fmt.Errorf("unable to unmarshal manifest json: %s", err)
+	}
+
+	if spec := getMapByKey(dataMap, "spec"); spec != nil {
+		if strategy := getMapByKey(spec, "strategy"); strategy != nil {
+			if rollingUpdateI, hasKey := strategy["rollingUpdate"]; hasKey {
+				if rollingUpdateI == nil {
+					delete(strategy, "rollingUpdate")
+					delete(strategy, "$retainKeys")
+
+					if debugUpdateResource() {
+						fmt.Printf("-- Deleted rollingUpdate and $retainKeys for patch:\n%s\n", patch)
+					}
+					repairDebugMessages = append(repairDebugMessages, fmt.Sprintf("deleted rollingUpdate and $retainKeys for patch"))
+				}
+			}
+
+			if len(strategy) == 0 {
+				delete(spec, "strategy")
+			}
+		}
+
+		if len(spec) == 0 {
+			delete(dataMap, "spec")
+		}
+	}
+
+	type queueElem struct {
+		Key    string
+		ValueI interface{}
+		MapRef map[string]interface{}
+	}
+	var queue []queueElem
+	for k, v := range dataMap {
+		queue = append(queue, queueElem{k, v, dataMap})
+	}
+	for len(queue) > 0 {
+		elem := queue[0]
+		queue = queue[1:]
+
+		if strings.HasPrefix(elem.Key, "$setElementOrder") || strings.HasPrefix(elem.Key, "$retainKeys") {
+			delete(elem.MapRef, elem.Key)
+
+			if debugUpdateResource() {
+				fmt.Printf("-- Deleted %s for patch\n", elem.Key)
+			}
+			repairDebugMessages = append(repairDebugMessages, fmt.Sprintf("deleted %s for patch", elem.Key))
+
+			continue
+		}
+
+		switch value := elem.ValueI.(type) {
+		case map[string]interface{}:
+			for k, v := range value {
+				queue = append(queue, queueElem{k, v, value})
+			}
+		case []interface{}:
+			for _, sliceValueI := range value {
+				if sliceValue, ok := sliceValueI.(map[string]interface{}); ok {
+					for k, v := range sliceValue {
+						queue = append(queue, queueElem{k, v, sliceValue})
+					}
+				}
+			}
+		}
+	}
+
+	newPatch, err := json.Marshal(dataMap)
+	if err != nil {
+		return nil, fmt.Errorf("unable to marshal new manifest json: %s", err)
+	}
+
+	return newPatch, nil
 }
 
 func createThreeWayMergePatch(target *resource.Info, original, modified, current []byte) ([]byte, types.PatchType, error) {
@@ -1081,15 +1223,23 @@ func createThreeWayMergePatch(target *resource.Info, original, modified, current
 }
 
 func updateResource(c *Client, target *resource.Info, currentObj, originalObj runtime.Object, force bool, recreate bool) error {
-	repairPatchData, _, err := createRepairPatch(target, currentObj, originalObj)
+	if targetManifest, err := json.Marshal(target.Object); err == nil {
+		if err := validateManifest(c, targetManifest); err != nil {
+			msg := fmt.Sprintf("Validation of target data failed: %s", err)
+			logboek.LogErrorF("%s\n", msg)
+			_ = setObjectAnnotation(target.Object, validationWarningsAnnotation, msg)
+		}
+	}
+
+	repairPatchData, _, err := createRepairPatch(c, target, currentObj, originalObj)
 	if err != nil {
 		logboek.LogErrorF("WARNING Unable to create repair patch: %s\n", err)
 		_ = setObjectAnnotation(target.Object, repairPatchErrorsAnnotation, err.Error())
 	} else {
+		repairMessages := make([]string, 0)
+
 		isRepairPatchEmpty := len(repairPatchData) == 0 || string(repairPatchData) == "{}"
 		if !isRepairPatchEmpty {
-			var repairMessages []string
-
 			// main repair instruction parts
 			mripart1 := fmt.Sprintf("%s named %s state is inconsistent with chart configuration state!", target.Mapping.GroupVersionKind.Kind, target.Name)
 			mripart2 := fmt.Sprintf("Repair patch has been written to the %s annotation of %s named %s", repairPatchAnnotation, target.Mapping.GroupVersionKind.Kind, target.Name)
@@ -1113,8 +1263,8 @@ func updateResource(c *Client, target *resource.Info, currentObj, originalObj ru
 				mripart4,
 			}, "\n"))
 
-			repairMessagesJsonData, _ := json.Marshal(repairMessages)
-			_ = setObjectAnnotation(target.Object, repairMessagesAnnotation, string(repairMessagesJsonData))
+			repairMessages = append(repairMessages, repairDebugMessages...)
+			repairDebugMessages = []string{}
 
 			defer func() {
 				logboek.LogErrorF("WARNING ###########################################################################\n")
@@ -1131,6 +1281,8 @@ func updateResource(c *Client, target *resource.Info, currentObj, originalObj ru
 			}()
 		}
 
+		repairMessagesJsonData, _ := json.Marshal(repairMessages)
+		_ = setObjectAnnotation(target.Object, repairMessagesAnnotation, string(repairMessagesJsonData))
 		_ = setObjectAnnotation(target.Object, repairPatchAnnotation, string(repairPatchData))
 	}
 
@@ -1237,7 +1389,7 @@ func checkRepairPatchForWarnings(patch []byte) ([]string, error) {
 		}
 
 		ignoreInstructions = append(ignoreInstructions, fmt.Sprintf("Detected %s field change in the kubernetes live object state! If you use %s autoscaler then remove this field from the resource manifest configuration of the chart.", fieldPath, autoscalerName))
-		ignoreInstructions = append(ignoreInstructions, fmt.Sprintf("Otherwise, to ignore field %[1]s changes in the kubernetes live object state add '\"%[2]s\": \"true\"' annotation to the resource manifest configuration of the chart, or use the option --add-annotation=%[2]s=true for adding annotation to all deploying resources.", fieldPath, annoName))
+		ignoreInstructions = append(ignoreInstructions, fmt.Sprintf("Otherwise, to ignore field %[1]s changes in the kubernetes live object state add '\"%[2]s\": \"true\"' annotation to the resource manifest configuration of the chart, or use the option --add-annotation=%[2]s=true to add annotation to all deploying resources.", fieldPath, annoName))
 	})
 
 	return ignoreInstructions, nil
