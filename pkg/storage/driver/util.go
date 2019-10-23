@@ -53,8 +53,10 @@ func encodeRelease(rls *rspb.Release) (string, error) {
 // decodeRelease decodes the bytes in data into a release
 // type. Data must contain a base64 encoded string of a
 // valid protobuf encoding of a release, otherwise
-// an error is returned.
-func decodeRelease(data string) (*rspb.Release, error) {
+// an error is returned. Provided annotations may
+// override some release params such as ThreeWayMergeEnabled
+// if overrideFieldsFromAnnotations=true is set.
+func decodeRelease(data string, overrideFieldsFromAnnotations bool, annotations map[string]string) (*rspb.Release, error) {
 	// base64 decode string
 	b, err := b64.DecodeString(data)
 	if err != nil {
@@ -81,5 +83,22 @@ func decodeRelease(data string) (*rspb.Release, error) {
 	if err := proto.Unmarshal(b, &rls); err != nil {
 		return nil, err
 	}
+
+	if overrideFieldsFromAnnotations {
+		rls.ThreeWayMergeEnabled = false
+		if twmEnabled, hasKey := annotations[ThreeWayMergeEnabledAnnotation]; hasKey {
+			if twmEnabled == "true" {
+				rls.ThreeWayMergeEnabled = true
+			}
+		}
+
+		rls.ResourcesHasOwnerReleaseName = false
+		if resourcesHasOwnerReleaseName, hasKey := annotations[ResourcesHasOwnerReleaseNameAnnotation]; hasKey {
+			if resourcesHasOwnerReleaseName == "true" {
+				rls.ResourcesHasOwnerReleaseName = true
+			}
+		}
+	}
+
 	return &rls, nil
 }
