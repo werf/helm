@@ -51,7 +51,11 @@ type LocalReleaseModule struct {
 // Create creates a release via kubeclient from provided environment
 func (m *LocalReleaseModule) Create(r *release.Release, req *services.InstallReleaseRequest, env *environment.Environment) error {
 	b := bytes.NewBufferString(r.Manifest)
-	return env.KubeClient.Create(r.Namespace, b, req.Timeout, req.Wait)
+	return env.KubeClient.CreateWithOptions(r.Namespace, b, kube.CreateOptions{
+		Timeout:     req.Timeout,
+		ShouldWait:  req.Wait,
+		ReleaseName: r.Name,
+	})
 }
 
 // Update performs an update from current to target release
@@ -59,11 +63,13 @@ func (m *LocalReleaseModule) Update(current, target *release.Release, req *servi
 	c := bytes.NewBufferString(current.Manifest)
 	t := bytes.NewBufferString(target.Manifest)
 	return env.KubeClient.UpdateWithOptions(target.Namespace, c, t, kube.UpdateOptions{
-		Force:         req.Force,
-		Recreate:      req.Recreate,
-		Timeout:       req.Timeout,
-		ShouldWait:    req.Wait,
-		CleanupOnFail: req.CleanupOnFail,
+		Force:            req.Force,
+		Recreate:         req.Recreate,
+		Timeout:          req.Timeout,
+		ShouldWait:       req.Wait,
+		CleanupOnFail:    req.CleanupOnFail,
+		ReleaseName:      target.Name,
+		UseThreeWayMerge: target.ThreeWayMergeEnabled,
 	})
 }
 
@@ -72,11 +78,13 @@ func (m *LocalReleaseModule) Rollback(current, target *release.Release, req *ser
 	c := bytes.NewBufferString(current.Manifest)
 	t := bytes.NewBufferString(target.Manifest)
 	return env.KubeClient.UpdateWithOptions(target.Namespace, c, t, kube.UpdateOptions{
-		Force:         req.Force,
-		Recreate:      req.Recreate,
-		Timeout:       req.Timeout,
-		ShouldWait:    req.Wait,
-		CleanupOnFail: req.CleanupOnFail,
+		Force:            req.Force,
+		Recreate:         req.Recreate,
+		Timeout:          req.Timeout,
+		ShouldWait:       req.Wait,
+		CleanupOnFail:    req.CleanupOnFail,
+		ReleaseName:      target.Name,
+		UseThreeWayMerge: target.ThreeWayMergeEnabled,
 	})
 }
 

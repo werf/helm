@@ -117,6 +117,12 @@ message ListReleasesRequest {
 	string namespace = 7;
 }
 
+enum ThreeWayMergeMode {
+    enabled = 0;
+    disabled = 1;
+    onlyNewReleases = 2;
+}
+
 // ListSort defines sorting fields on a release list.
 message ListSort{
 	// SortBy defines sort operations.
@@ -216,6 +222,7 @@ message UpdateReleaseRequest {
 	bool subNotes = 13;
 	// Allow deletion of new resources created in this update when update failed
 	bool cleanup_on_fail = 14;
+	ThreeWayMergeMode three_way_merge_mode = 15;
 }
 
 // UpdateReleaseResponse is the response to an update request.
@@ -245,6 +252,7 @@ message RollbackReleaseRequest {
 	string description = 9;
 	// Allow deletion of new resources created in this rollback when rollback failed
 	bool cleanup_on_fail = 10;
+	ThreeWayMergeMode three_way_merge_mode = 11;
 }
 
 // RollbackReleaseResponse is the response to an update request.
@@ -290,6 +298,7 @@ message InstallReleaseRequest {
 
 	bool subNotes = 12;
 
+	ThreeWayMergeMode three_way_merge_mode = 13;
 }
 
 // InstallReleaseResponse is the response from a release installation.

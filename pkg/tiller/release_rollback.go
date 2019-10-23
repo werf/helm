@@ -18,8 +18,9 @@ package tiller
 
 import (
 	"fmt"
-	"k8s.io/helm/pkg/storage"
 	"strings"
+
+	"k8s.io/helm/pkg/storage"
 
 	ctx "golang.org/x/net/context"
 
@@ -113,6 +114,17 @@ func (s *ReleaseServer) prepareRollback(req *services.RollbackReleaseRequest) (*
 		Version:  currentRelease.Version + 1,
 		Manifest: previousRelease.Manifest,
 		Hooks:    previousRelease.Hooks,
+	}
+
+	switch req.ThreeWayMergeMode {
+	case services.ThreeWayMergeMode_disabled:
+		targetRelease.ThreeWayMergeEnabled = false
+	case services.ThreeWayMergeMode_enabled:
+		targetRelease.ThreeWayMergeEnabled = true
+	case services.ThreeWayMergeMode_onlyNewReleases:
+		targetRelease.ThreeWayMergeEnabled = currentRelease.ThreeWayMergeEnabled
+	default:
+		panic("non empty req.ThreeWayMergeMode required!")
 	}
 
 	return currentRelease, targetRelease, nil

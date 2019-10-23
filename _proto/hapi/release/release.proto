@@ -50,4 +50,6 @@ message Release {
 
 	// Namespace is the kubernetes namespace of the release.
 	string namespace = 8;
+
+	bool three_way_merge_enabled = 9;
 }

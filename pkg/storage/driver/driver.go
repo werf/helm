@@ -21,6 +21,8 @@ import (
 	storageerrors "k8s.io/helm/pkg/storage/errors"
 )
 
+const ThreeWayMergeEnabledAnnotation = "werf.io/three-way-merge-enabled"
+
 var (
 	// ErrReleaseNotFound has been deprecated; please use storageerrors.ErrReleaseNotFound instead.
 	ErrReleaseNotFound = storageerrors.ErrReleaseNotFound

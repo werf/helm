@@ -123,6 +123,18 @@ func (s *ReleaseServer) prepareRelease(req *services.InstallReleaseRequest) (*re
 		Hooks:    hooks,
 		Version:  int32(revision),
 	}
+
+	switch req.ThreeWayMergeMode {
+	case services.ThreeWayMergeMode_disabled:
+		rel.ThreeWayMergeEnabled = false
+	case services.ThreeWayMergeMode_enabled:
+		rel.ThreeWayMergeEnabled = true
+	case services.ThreeWayMergeMode_onlyNewReleases:
+		rel.ThreeWayMergeEnabled = true
+	default:
+		panic("non empty req.ThreeWayMergeMode required!")
+	}
+
 	if len(notesTxt) > 0 {
 		rel.Info.Status.Notes = notesTxt
 	}
@@ -207,9 +219,10 @@ func (s *ReleaseServer) performRelease(r *release.Release, req *services.Install
 		// so as to append to the old release's history
 		r.Version = old.Version + 1
 		updateReq := &services.UpdateReleaseRequest{
-			Wait:     req.Wait,
-			Recreate: false,
-			Timeout:  req.Timeout,
+			Wait:              req.Wait,
+			Recreate:          false,
+			Timeout:           req.Timeout,
+			ThreeWayMergeMode: req.ThreeWayMergeMode,
 		}
 		s.recordRelease(r, false)
 		if err := s.ReleaseModule.Update(old, r, updateReq, s.env); err != nil {

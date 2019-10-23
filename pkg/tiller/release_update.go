@@ -135,6 +135,17 @@ func (s *ReleaseServer) prepareUpdate(req *services.UpdateReleaseRequest) (*rele
 		Hooks:    hooks,
 	}
 
+	switch req.ThreeWayMergeMode {
+	case services.ThreeWayMergeMode_disabled:
+		updatedRelease.ThreeWayMergeEnabled = false
+	case services.ThreeWayMergeMode_enabled:
+		updatedRelease.ThreeWayMergeEnabled = true
+	case services.ThreeWayMergeMode_onlyNewReleases:
+		updatedRelease.ThreeWayMergeEnabled = currentRelease.ThreeWayMergeEnabled
+	default:
+		panic("non empty req.ThreeWayMergeMode required!")
+	}
+
 	if len(notesTxt) > 0 {
 		updatedRelease.Info.Status.Notes = notesTxt
 	}
@@ -153,15 +164,16 @@ func (s *ReleaseServer) performUpdateForce(req *services.UpdateReleaseRequest) (
 	res := &services.UpdateReleaseResponse{}
 
 	newRelease, err := s.prepareRelease(&services.InstallReleaseRequest{
-		Chart:        req.Chart,
-		Values:       req.Values,
-		DryRun:       req.DryRun,
-		Name:         req.Name,
-		DisableHooks: req.DisableHooks,
-		Namespace:    oldRelease.Namespace,
-		ReuseName:    true,
-		Timeout:      req.Timeout,
-		Wait:         req.Wait,
+		Chart:             req.Chart,
+		Values:            req.Values,
+		DryRun:            req.DryRun,
+		Name:              req.Name,
+		DisableHooks:      req.DisableHooks,
+		Namespace:         oldRelease.Namespace,
+		ReuseName:         true,
+		Timeout:           req.Timeout,
+		Wait:              req.Wait,
+		ThreeWayMergeMode: req.ThreeWayMergeMode,
 	})
 	if err != nil {
 		s.Log("failed update prepare step: %s", err)

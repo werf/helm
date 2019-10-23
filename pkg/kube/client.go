@@ -68,6 +68,10 @@ import (
 const MissingGetHeader = "==> MISSING\nKIND\t\tNAME\n"
 
 const (
+	ownerReleaseAnnotation = "werf.io/owner-release"
+)
+
+const (
 	SetReplicasOnlyOnCreationAnnotation  = "werf.io/set-replicas-only-on-creation"
 	SetResourcesOnlyOnCreationAnnotation = "werf.io/set-resources-only-on-creation"
 
@@ -80,7 +84,8 @@ const (
 )
 
 var (
-	repairDebugMessages []string
+	RepairDebugMessages []string
+	LastClientWarnings  []string
 )
 
 // ErrNoObjectsVisited indicates that during a visit operation, no matching objects were found.
@@ -135,10 +140,24 @@ var nopLogger = func(_ string, _ ...interface{}) {}
 // ResourceActorFunc performs an action on a single resource.
 type ResourceActorFunc func(*resource.Info) error
 
-// Create creates Kubernetes resources from an io.reader.
+// CreateOptions provides options to control create behavior
+type CreateOptions struct {
+	Timeout     int64
+	ShouldWait  bool
+	ReleaseName string
+}
+
+// Deprecated; use CreateWithOptions instead
+func (c *Client) Create(namespace string, reader io.Reader, timeout int64, shouldWait bool) error {
+	return c.CreateWithOptions(namespace, reader, CreateOptions{Timeout: timeout, ShouldWait: shouldWait})
+}
+
+// CreateWithOptions creates Kubernetes resources from an io.reader.
 //
 // Namespace will set the namespace.
-func (c *Client) Create(namespace string, reader io.Reader, timeout int64, shouldWait bool) error {
+func (c *Client) CreateWithOptions(namespace string, reader io.Reader, opts CreateOptions) error {
+	LastClientWarnings = nil
+
 	client, err := c.KubernetesClientSet()
 	if err != nil {
 		return err
@@ -151,12 +170,57 @@ func (c *Client) Create(namespace string, reader io.Reader, timeout int64, shoul
 	if buildErr != nil {
 		return buildErr
 	}
+
 	c.Log("creating %d resource(s)", len(infos))
-	if err := perform(infos, createResource); err != nil {
+
+	if err := perform(infos, func(info *resource.Info) error {
+		helper := resource.NewHelper(info.Client, info.Mapping)
+		currentObj, err := helper.Get(info.Namespace, info.Name, info.Export)
+
+		if errors.IsNotFound(err) {
+			// resource not found
+
+			validateAndSetWarnings(c, info.Object)
+
+			if err := createResource(info, opts.ReleaseName); err != nil {
+				return fmt.Errorf("unable to create resource %s/%s: %s", info.Mapping.GroupVersionKind.Kind, info.Name, err)
+			}
+
+			return nil
+		} else if err != nil {
+			return fmt.Errorf("could not get information about the resource %s/%s: %s", info.Mapping.GroupVersionKind, info.Name, err)
+		}
+
+		// resource found
+
+		adoptObjectAllowed := false
+		ownerRelease := getObjectAnnotation(currentObj, ownerReleaseAnnotation)
+		if opts.ReleaseName != "" && ownerRelease == opts.ReleaseName {
+			adoptObjectAllowed = true
+		}
+
+		if !adoptObjectAllowed {
+			return fmt.Errorf(
+				"Kind %s with the name %q already exists in the cluster. Before installing, please either delete the resource from the cluster or remove it from the chart or set \"%s\": \"%s\" annotation to the object, which will cause werf to adopt existing resource into the release",
+				info.Mapping.GroupVersionKind.Kind,
+				info.Name,
+				ownerReleaseAnnotation,
+				opts.ReleaseName,
+			)
+		}
+
+		validateAndSetWarnings(c, info.Object)
+		if err := adoptResource(c, info, currentObj, opts.ReleaseName); err != nil {
+			return fmt.Errorf("unable to adopt resource %s/%s: %s", info.Mapping.GroupVersionKind.Kind, info.Name, err)
+		}
+
+		return nil
+	}); err != nil {
 		return err
 	}
-	if shouldWait {
-		return c.waitForResources(time.Duration(timeout)*time.Second, infos)
+
+	if opts.ShouldWait {
+		return c.waitForResources(time.Duration(opts.Timeout)*time.Second, infos)
 	}
 	return nil
 }
@@ -371,7 +435,9 @@ type UpdateOptions struct {
 	Timeout    int64
 	ShouldWait bool
 	// Allow deletion of new resources created in this update when update failed
-	CleanupOnFail bool
+	CleanupOnFail    bool
+	ReleaseName      string
+	UseThreeWayMerge bool
 }
 
 // UpdateWithOptions reads in the current configuration and a target configuration from io.reader
@@ -381,6 +447,12 @@ type UpdateOptions struct {
 //
 // Namespace will set the namespaces.
 func (c *Client) UpdateWithOptions(namespace string, originalReader, targetReader io.Reader, opts UpdateOptions) error {
+	LastClientWarnings = nil
+
+	if opts.UseThreeWayMerge {
+		opts.CleanupOnFail = false
+	}
+
 	original, err := c.BuildUnstructured(namespace, originalReader)
 	if err != nil {
 		return fmt.Errorf("failed decoding reader into objects: %s", err)
@@ -394,6 +466,7 @@ func (c *Client) UpdateWithOptions(namespace string, originalReader, targetReade
 
 	newlyCreatedResources := []*resource.Info{}
 	updateErrors := []string{}
+	adoptErrors := []string{}
 
 	c.Log("checking %d resources for changes", len(target))
 	err = target.Visit(func(target *resource.Info, err error) error {
@@ -408,8 +481,10 @@ func (c *Client) UpdateWithOptions(namespace string, originalReader, targetReade
 				return fmt.Errorf("Could not get information about the resource: %s", err)
 			}
 
+			validateAndSetWarnings(c, target.Object)
+
 			// Since the resource does not exist, create it.
-			if err := createResource(target); err != nil {
+			if err := createResource(target, opts.ReleaseName); err != nil {
 				return fmt.Errorf("failed to create resource: %s", err)
 			}
 			newlyCreatedResources = append(newlyCreatedResources, target)
@@ -426,23 +501,41 @@ func (c *Client) UpdateWithOptions(namespace string, originalReader, targetReade
 		//
 		// See https://github.com/helm/helm/issues/1193 for more info.
 		if originalInfo == nil {
-			return fmt.Errorf(
-				"kind %s with the name %q already exists in the cluster and wasn't defined in the previous release. Before upgrading, please either delete the resource from the cluster or remove it from the chart",
-				target.Mapping.GroupVersionKind.Kind,
-				target.Name,
-			)
+			adoptObjectAllowed := false
+			ownerRelease := getObjectAnnotation(currentObj, ownerReleaseAnnotation)
+			if opts.ReleaseName != "" && ownerRelease == opts.ReleaseName {
+				adoptObjectAllowed = true
+			}
+
+			if !adoptObjectAllowed {
+				return fmt.Errorf(
+					"kind %s with the name %q already exists in the cluster and wasn't defined in the previous release. Before upgrading, please either delete the resource from the cluster or remove it from the chart or set \"%s\": \"%s\" annotation to the object, which will cause werf to adopt existing resource into the release",
+					target.Mapping.GroupVersionKind.Kind,
+					target.Name,
+					ownerReleaseAnnotation,
+					opts.ReleaseName,
+				)
+			}
+
+			validateAndSetWarnings(c, target.Object)
+			if err := adoptResource(c, target, currentObj, opts.ReleaseName); err != nil {
+				c.Log("error adopting resource %s/%s:\n\t %v", target.Mapping.GroupVersionKind.Kind, target.Name, err)
+				adoptErrors = append(adoptErrors, err.Error())
+			}
+		} else {
+			validateAndSetWarnings(c, target.Object)
+			if err := updateResource(c, target, currentObj, originalInfo.Object, opts.Force, opts.Recreate, opts.UseThreeWayMerge, opts.ReleaseName); err != nil {
+				c.Log("error updating the resource %q:\n\t %v", target.Name, err)
+				updateErrors = append(updateErrors, err.Error())
+			}
 		}
 
-		if err := updateResource(c, target, currentObj, originalInfo.Object, opts.Force, opts.Recreate); err != nil {
-			c.Log("error updating the resource %q:\n\t %v", target.Name, err)
-			updateErrors = append(updateErrors, err.Error())
-		}
 		return nil
 	})
 
 	cleanupErrors := []string{}
 
-	if opts.CleanupOnFail && (err != nil || len(updateErrors) != 0) {
+	if opts.CleanupOnFail && (err != nil || len(updateErrors) != 0 || len(adoptErrors) != 0) {
 		c.Log("Cleanup on fail enabled: cleaning up newly created resources due to update manifests failures")
 		cleanupErrors = c.cleanup(newlyCreatedResources)
 	}
@@ -450,8 +543,8 @@ func (c *Client) UpdateWithOptions(namespace string, originalReader, targetReade
 	switch {
 	case err != nil:
 		return fmt.Errorf(strings.Join(append([]string{err.Error()}, cleanupErrors...), " && "))
-	case len(updateErrors) != 0:
-		return fmt.Errorf(strings.Join(append(updateErrors, cleanupErrors...), " && "))
+	case len(updateErrors)+len(adoptErrors) != 0:
+		return fmt.Errorf(strings.Join(append(updateErrors, append(adoptErrors, cleanupErrors...)...), " && "))
 	}
 
 	for _, info := range original.Difference(target) {
@@ -657,6 +750,25 @@ func perform(infos Result, fn ResourceActorFunc) error {
 	return nil
 }
 
+func filter(infos Result, fn func(*resource.Info) (bool, error)) (Result, error) {
+	if len(infos) == 0 {
+		return nil, ErrNoObjectsVisited
+	}
+
+	var newInfos Result
+
+	for i := range infos {
+		keep, err := fn(infos[i])
+		if err != nil {
+			return nil, err
+		} else if keep {
+			newInfos = append(newInfos, infos[i])
+		}
+	}
+
+	return newInfos, nil
+}
+
 func setObjectAnnotation(obj runtime.Object, annoName, annoValue string) error {
 	annots, err := metadataAccessor.Annotations(obj)
 	if err != nil {
@@ -679,7 +791,7 @@ func setObjectAnnotation(obj runtime.Object, annoName, annoValue string) error {
 		return err
 	}
 
-	if os.Getenv("WERF_DEBUG_3WM_ANNOTATIONS_MODE") == "1" {
+	if debugUpdateResource() {
 		logboek.LogInfoF("Set annotation %s=%s for %s named %q\n", annoName, annoValue, kind, name)
 	}
 
@@ -695,7 +807,20 @@ func getObjectAnnotation(obj runtime.Object, annoName string) string {
 	return annots[annoName]
 }
 
-func createResource(info *resource.Info) error {
+func deleteObjectAnnotaion(obj runtime.Object, annoName string) {
+	annots, err := metadataAccessor.Annotations(obj)
+	if err != nil {
+		logboek.LogErrorF("Unable to fetch annotations of kube object: %s\n", err)
+		return
+	}
+	delete(annots, annoName)
+}
+
+func createResource(info *resource.Info, releaseName string) error {
+	if err := setObjectAnnotation(info.Object, ownerReleaseAnnotation, releaseName); err != nil {
+		return fmt.Errorf("unable to set %s=%s annotation: %s", ownerReleaseAnnotation, releaseName, err)
+	}
+
 	obj, err := resource.NewHelper(info.Client, info.Mapping).Create(info.Namespace, true, info.Object, nil)
 	if err != nil {
 		return err
@@ -704,10 +829,19 @@ func createResource(info *resource.Info) error {
 }
 
 func deleteResource(info *resource.Info) error {
+	// FIXME: do not delete resources of FAILED release which does not belong to the release
 	policy := metav1.DeletePropagationBackground
 	opts := &metav1.DeleteOptions{PropagationPolicy: &policy}
 	_, err := resource.NewHelper(info.Client, info.Mapping).DeleteWithOptions(info.Namespace, info.Name, opts)
 	return err
+}
+
+func adoptResource(c *Client, target *resource.Info, currentObj runtime.Object, releaseName string) error {
+	if err := setObjectAnnotation(target.Object, ownerReleaseAnnotation, releaseName); err != nil {
+		return fmt.Errorf("unable to set %s=%s annotation: %s", ownerReleaseAnnotation, releaseName, err)
+	}
+
+	return updateResource(c, target, currentObj, target.Object, false, false, true, releaseName)
 }
 
 func applyPatchForData(target *resource.Info, oldData, patch []byte) ([]byte, error) {
@@ -833,7 +967,15 @@ func debugUpdateResource() bool {
 	return os.Getenv("WERF_DEBUG_UPDATE_RESOURCE") == "1"
 }
 
-func createRepairPatch(c *Client, target *resource.Info, currentObj, originalObj runtime.Object) ([]byte, types.PatchType, error) {
+func createFinalThreeWayMergePatch(c *Client, target *resource.Info, currentObj, originalObj runtime.Object) ([]byte, types.PatchType, error) {
+	setObjectAnnotation(originalObj, repairPatchAnnotation, getObjectAnnotation(currentObj, repairPatchAnnotation))
+	setObjectAnnotation(originalObj, repairPatchErrorsAnnotation, getObjectAnnotation(currentObj, repairPatchErrorsAnnotation))
+	setObjectAnnotation(originalObj, repairMessagesAnnotation, getObjectAnnotation(currentObj, repairMessagesAnnotation))
+
+	deleteObjectAnnotaion(target.Object, repairPatchAnnotation)
+	deleteObjectAnnotaion(target.Object, repairPatchErrorsAnnotation)
+	deleteObjectAnnotaion(target.Object, repairMessagesAnnotation)
+
 	setReplicasOnlyOnCreationAnnoValue := getObjectAnnotation(target.Object, SetReplicasOnlyOnCreationAnnotation)
 	setResourcesOnlyOnCreationAnnoValue := getObjectAnnotation(target.Object, SetResourcesOnlyOnCreationAnnotation)
 
@@ -844,7 +986,7 @@ func createRepairPatch(c *Client, target *resource.Info, currentObj, originalObj
 	if err != nil {
 		return nil, "", fmt.Errorf("serializing current configuration: %s", err)
 	}
-	filteredCurrentData, err := filterManifestForRepairPatch(currentData, isReplicasOnlyOnCreation, isResourcesOnlyOnCreation)
+	filteredCurrentData, err := filterManifestForRepairPatch(currentData, isReplicasOnlyOnCreation, isResourcesOnlyOnCreation, filterManifestOptions{FilterVolumesDownwardApi: true})
 	if err != nil {
 		return nil, "", fmt.Errorf("unable to filter current manifest: %s", err)
 	}
@@ -857,7 +999,96 @@ func createRepairPatch(c *Client, target *resource.Info, currentObj, originalObj
 	if err != nil {
 		return nil, "", fmt.Errorf("serializing target configuration: %s", err)
 	}
-	filteredTargetData, err := filterManifestForRepairPatch(targetData, isReplicasOnlyOnCreation, isResourcesOnlyOnCreation)
+	filteredTargetData, err := filterManifestForRepairPatch(targetData, isReplicasOnlyOnCreation, isResourcesOnlyOnCreation, filterManifestOptions{})
+	if err != nil {
+		return nil, "", fmt.Errorf("unable to filter target manifest: %s", err)
+	}
+	if debugUpdateResource() {
+		fmt.Printf("-- targetData:\n%s\n", targetData)
+		fmt.Printf("-- filteredTargetData:\n%s\n", filteredTargetData)
+	}
+
+	originalData, err := json.Marshal(originalObj)
+	if err != nil {
+		return nil, "", fmt.Errorf("serializing original configuration: %s", err)
+	}
+	filteredOriginalData, err := filterManifestForRepairPatch(originalData, isReplicasOnlyOnCreation, isResourcesOnlyOnCreation, filterManifestOptions{})
+	if err != nil {
+		return nil, "", fmt.Errorf("unable to filter original manifest: %s", err)
+	}
+	if debugUpdateResource() {
+		fmt.Printf("-- originalData:\n%s\n", originalData)
+		fmt.Printf("-- filteredOriginalData:\n%s\n", filteredOriginalData)
+	}
+
+	firstStagePatch, _, err := createThreeWayMergePatch(target, filteredOriginalData, filteredTargetData, filteredCurrentData)
+	if err != nil {
+		return nil, "", fmt.Errorf("unable to create first stage three-way-merge patch: %s", err)
+	}
+	filteredFirstStagePatch, err := filterRepairPatch(firstStagePatch)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to filter first stage three-way-merge patch: %s", err)
+	}
+	if debugUpdateResource() {
+		fmt.Printf("-- firstStagePatch:\n%s\n", firstStagePatch)
+		fmt.Printf("-- filteredFirstStagePatch:\n%s\n", filteredFirstStagePatch)
+	}
+
+	currentDataAfterFirstStagePatch, err := applyPatchForData(target, filteredCurrentData, filteredFirstStagePatch)
+	if err != nil {
+		return nil, "", fmt.Errorf("unable to construct new current state using first stage repair three-way-merge patch: %s", err)
+	}
+	validatedCurrentDataAfterFirstStagePatch, err := makeValidatedManifest(target, currentDataAfterFirstStagePatch)
+	if err != nil {
+		return nil, "", fmt.Errorf("unable to construct validated manifest for current state after first stage repair three-way-merge patch: %s", err)
+	}
+	if debugUpdateResource() {
+		fmt.Printf("-- currentDataAfterFirstStagePatch:\n%s\n", currentDataAfterFirstStagePatch)
+		fmt.Printf("-- validatedCurrentDataAfterFirstStagePatch:\n%s\n", validatedCurrentDataAfterFirstStagePatch)
+	}
+
+	finalPatch, patchType, err := createThreeWayMergePatch(target, filteredCurrentData, validatedCurrentDataAfterFirstStagePatch, filteredCurrentData)
+	if err != nil {
+		return nil, "", fmt.Errorf("unable to create final three-way-merge patch: %s", err)
+	}
+	filteredFinalPatch, err := filterRepairPatch(finalPatch)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to filter final three-way-merge patch: %s", err)
+	}
+	if debugUpdateResource() {
+		fmt.Printf("-- finalPatch:\n%s\n", finalPatch)
+		fmt.Printf("-- filteredFinalPatch:\n%s\n", filteredFinalPatch)
+		fmt.Printf("-- finalPatchType: %s\n", patchType)
+	}
+
+	return filteredFinalPatch, patchType, nil
+}
+
+func createRepairPatch(c *Client, target *resource.Info, currentObj, originalObj runtime.Object) ([]byte, types.PatchType, error) {
+	setReplicasOnlyOnCreationAnnoValue := getObjectAnnotation(target.Object, SetReplicasOnlyOnCreationAnnotation)
+	setResourcesOnlyOnCreationAnnoValue := getObjectAnnotation(target.Object, SetResourcesOnlyOnCreationAnnotation)
+
+	isReplicasOnlyOnCreation := setReplicasOnlyOnCreationAnnoValue == "true"
+	isResourcesOnlyOnCreation := setResourcesOnlyOnCreationAnnoValue == "true"
+
+	currentData, err := json.Marshal(currentObj)
+	if err != nil {
+		return nil, "", fmt.Errorf("serializing current configuration: %s", err)
+	}
+	filteredCurrentData, err := filterManifestForRepairPatch(currentData, isReplicasOnlyOnCreation, isResourcesOnlyOnCreation, filterManifestOptions{FilterVolumesDownwardApi: true})
+	if err != nil {
+		return nil, "", fmt.Errorf("unable to filter current manifest: %s", err)
+	}
+	if debugUpdateResource() {
+		fmt.Printf("-- currentData:\n%s\n", currentData)
+		fmt.Printf("-- filteredCurrentData:\n%s\n", filteredCurrentData)
+	}
+
+	targetData, err := json.Marshal(target.Object)
+	if err != nil {
+		return nil, "", fmt.Errorf("serializing target configuration: %s", err)
+	}
+	filteredTargetData, err := filterManifestForRepairPatch(targetData, isReplicasOnlyOnCreation, isResourcesOnlyOnCreation, filterManifestOptions{})
 	if err != nil {
 		return nil, "", fmt.Errorf("unable to filter target manifest: %s", err)
 	}
@@ -888,7 +1119,7 @@ func createRepairPatch(c *Client, target *resource.Info, currentObj, originalObj
 		return nil, "", fmt.Errorf("unable to construct new current state using helm-apply two-way merge patch: %s", err)
 	}
 	// Filter is needed because helmApplyPatch was created as in helm without filters to target and original
-	filteredCurrentDataAfterHelmApply, err := filterManifestForRepairPatch(currentDataAfterHelmApply, isReplicasOnlyOnCreation, isResourcesOnlyOnCreation)
+	filteredCurrentDataAfterHelmApply, err := filterManifestForRepairPatch(currentDataAfterHelmApply, isReplicasOnlyOnCreation, isResourcesOnlyOnCreation, filterManifestOptions{FilterVolumesDownwardApi: true})
 	if err != nil {
 		return nil, "", fmt.Errorf("unable to filter current manifest after helm apply: %s", err)
 	}
@@ -1029,7 +1260,11 @@ func getMapByIndex(dataSlice []interface{}, index int) map[string]interface{} {
 	return nil
 }
 
-func filterManifestForRepairPatch(manifest []byte, isReplicasOnlyOnCreation, isResourcesOnlyOnCreation bool) ([]byte, error) {
+type filterManifestOptions struct {
+	FilterVolumesDownwardApi bool
+}
+
+func filterManifestForRepairPatch(manifest []byte, isReplicasOnlyOnCreation, isResourcesOnlyOnCreation bool, opts filterManifestOptions) ([]byte, error) {
 	var dataMap map[string]interface{}
 	if err := json.Unmarshal(manifest, &dataMap); err != nil {
 		return nil, fmt.Errorf("unable to unmarshal manifest json: %s", err)
@@ -1075,6 +1310,29 @@ func filterManifestForRepairPatch(manifest []byte, isReplicasOnlyOnCreation, isR
 							} // resources
 						}
 					}
+				} // containers
+
+				if opts.FilterVolumesDownwardApi {
+					if volumes := getSliceByKey(spec, "volumes"); volumes != nil {
+						for i := range volumes {
+							if volume := getMapByIndex(volumes, i); volume != nil {
+								if downwardAPI := getMapByKey(volume, "downwardAPI"); downwardAPI != nil {
+									if items := getSliceByKey(downwardAPI, "items"); items != nil {
+										for i := range items {
+											if item := getMapByIndex(items, i); item != nil {
+												if fieldRef := getMapByKey(item, "fieldRef"); fieldRef != nil {
+													if _, hasKey := fieldRef["apiVersion"]; hasKey {
+														delete(fieldRef, "apiVersion")
+														RepairDebugMessages = append(RepairDebugMessages, fmt.Sprintf("deleted volumes[].downwardApi.items[].apiVersion for manifest"))
+													}
+												}
+											}
+										}
+									}
+								}
+							}
+						}
+					} // volumes
 				}
 			}
 		}
@@ -1115,7 +1373,7 @@ func filterRepairPatch(patch []byte) ([]byte, error) {
 					if debugUpdateResource() {
 						fmt.Printf("-- Deleted rollingUpdate and $retainKeys for patch:\n%s\n", patch)
 					}
-					repairDebugMessages = append(repairDebugMessages, fmt.Sprintf("deleted rollingUpdate and $retainKeys for patch"))
+					RepairDebugMessages = append(RepairDebugMessages, fmt.Sprintf("deleted rollingUpdate and $retainKeys for patch"))
 				}
 			}
 
@@ -1148,7 +1406,7 @@ func filterRepairPatch(patch []byte) ([]byte, error) {
 			if debugUpdateResource() {
 				fmt.Printf("-- Deleted %s for patch\n", elem.Key)
 			}
-			repairDebugMessages = append(repairDebugMessages, fmt.Sprintf("deleted %s for patch", elem.Key))
+			RepairDebugMessages = append(RepairDebugMessages, fmt.Sprintf("deleted %s for patch", elem.Key))
 
 			continue
 		}
@@ -1208,6 +1466,8 @@ func createThreeWayMergePatch(target *resource.Info, original, modified, current
 	case err != nil:
 		return nil, "", cmdutil.AddSourceToErr(fmt.Sprintf("getting instance of versioned object for %v:", target.Mapping.GroupVersionKind), target.Source, err)
 	default:
+		patchType = types.StrategicMergePatchType
+
 		lookupPatchMeta, err = strategicpatch.NewPatchMetaFromStruct(versionedObject)
 		if err != nil {
 			return nil, "", cmdutil.AddSourceToErr(fmt.Sprintf(createPatchErrFormat, original, modified, current), target.Source, err)
@@ -1215,121 +1475,110 @@ func createThreeWayMergePatch(target *resource.Info, original, modified, current
 
 		patch, err = strategicpatch.CreateThreeWayMergePatch(original, modified, current, lookupPatchMeta, true)
 		if err != nil {
-			return nil, types.StrategicMergePatchType, fmt.Errorf("failed to create two-way merge patch: %v", err)
+			return nil, "", fmt.Errorf("failed to create two-way merge patch: %v", err)
 		}
 	}
 
 	return patch, patchType, nil
 }
 
-func updateResource(c *Client, target *resource.Info, currentObj, originalObj runtime.Object, force bool, recreate bool) error {
-	if targetManifest, err := json.Marshal(target.Object); err == nil {
+func validateAndSetWarnings(c *Client, obj runtime.Object) {
+	if targetManifest, err := json.Marshal(obj); err == nil {
 		if err := validateManifest(c, targetManifest); err != nil {
 			msg := fmt.Sprintf("Validation of target data failed: %s", err)
-			logboek.LogErrorF("%s\n", msg)
-			_ = setObjectAnnotation(target.Object, validationWarningsAnnotation, msg)
+			LastClientWarnings = append(LastClientWarnings, msg)
+			_ = setObjectAnnotation(obj, validationWarningsAnnotation, msg)
 		}
 	}
+}
 
-	repairPatchData, _, err := createRepairPatch(c, target, currentObj, originalObj)
-	if err != nil {
-		logboek.LogErrorF("WARNING Unable to create repair patch: %s\n", err)
-		_ = setObjectAnnotation(target.Object, repairPatchErrorsAnnotation, err.Error())
-	} else {
-		repairMessages := make([]string, 0)
-
-		isRepairPatchEmpty := len(repairPatchData) == 0 || string(repairPatchData) == "{}"
-		if !isRepairPatchEmpty {
-			// main repair instruction parts
-			mripart1 := fmt.Sprintf("%s named %s state is inconsistent with chart configuration state!", target.Mapping.GroupVersionKind.Kind, target.Name)
-			mripart2 := fmt.Sprintf("Repair patch has been written to the %s annotation of %s named %s", repairPatchAnnotation, target.Mapping.GroupVersionKind.Kind, target.Name)
-			mripart3 := "Execute the following command manually to repair resource state:"
-			mripart4 := fmt.Sprintf("kubectl -n %s patch %s %s -p '%s'", target.Namespace, target.Mapping.GroupVersionKind.Kind, target.Name, repairPatchData)
-
-			repairMessages = append(repairMessages, strings.Join([]string{
-				mripart1,
-			}, "\n"))
-
-			repairPatchWarnings, err := checkRepairPatchForWarnings(repairPatchData)
-			if err != nil {
-				logboek.LogErrorF("WARNING repair patch warnings check failed: %s\n", err)
-				_ = setObjectAnnotation(target.Object, repairPatchErrorsAnnotation, err.Error())
-			}
-			repairMessages = append(repairMessages, repairPatchWarnings...)
-
-			repairMessages = append(repairMessages, strings.Join([]string{
-				mripart2,
-				mripart3,
-				mripart4,
-			}, "\n"))
-
-			repairMessages = append(repairMessages, repairDebugMessages...)
-			repairDebugMessages = []string{}
-
-			defer func() {
-				logboek.LogErrorF("WARNING ###########################################################################\n")
-				logboek.LogErrorF("WARNING %s\n", mripart1)
-
-				for _, msg := range repairPatchWarnings {
-					logboek.LogErrorF(fmt.Sprintf("WARNING %s\n", msg))
-				}
-
-				logboek.LogErrorF("WARNING %s\n", mripart2)
-				logboek.LogErrorF("WARNING %s\n", mripart3)
-				fmt.Printf("%s\n", mripart4)
-				logboek.LogErrorF("WARNING ###########################################################################\n")
-			}()
-		}
-
-		repairMessagesJsonData, _ := json.Marshal(repairMessages)
-		_ = setObjectAnnotation(target.Object, repairMessagesAnnotation, string(repairMessagesJsonData))
-		_ = setObjectAnnotation(target.Object, repairPatchAnnotation, string(repairPatchData))
-	}
-
-	patch, patchType, err := createPatch(target, originalObj)
-	if err != nil {
-		return fmt.Errorf("failed to create patch: %s", err)
-	}
-
-	if patch == nil {
-		c.Log("Looks like there are no changes for %s %q", target.Mapping.GroupVersionKind.Kind, target.Name)
-		// This needs to happen to make sure that tiller has the latest info from the API
-		// Otherwise there will be no labels and other functions that use labels will panic
-		if err := target.Get(); err != nil {
-			return fmt.Errorf("error trying to refresh resource information: %v", err)
-		}
-	} else {
-		// send patch to server
-		helper := resource.NewHelper(target.Client, target.Mapping)
-
-		obj, err := helper.Patch(target.Namespace, target.Name, patchType, patch, nil)
+func updateResource(c *Client, target *resource.Info, currentObj, originalObj runtime.Object, force bool, recreate bool, useThreeWayMerge bool, releaseName string) error {
+	if useThreeWayMerge {
+		patch, patchType, err := createFinalThreeWayMergePatch(c, target, currentObj, originalObj)
 		if err != nil {
-			kind := target.Mapping.GroupVersionKind.Kind
-			log.Printf("Cannot patch %s: %q (%v)", kind, target.Name, err)
+			return fmt.Errorf("failed to create three-way-merge patch: %s", err)
+		}
 
-			if force {
-				// Attempt to delete...
-				if err := deleteResource(target); err != nil {
-					return err
-				}
-				log.Printf("Deleted %s: %q", kind, target.Name)
-
-				// ... and recreate
-				if err := createResource(target); err != nil {
-					return fmt.Errorf("Failed to recreate resource: %s", err)
-				}
-				log.Printf("Created a new %s called %q\n", kind, target.Name)
-
-				// No need to refresh the target, as we recreated the resource based
-				// on it. In addition, it might not exist yet and a call to `Refresh`
-				// may fail.
-			} else {
-				log.Print("Use --force to force recreation of the resource")
+		if patch != nil && string(patch) != "{}" {
+			if err := sendPatchToServerAndUpdateTarget(c, target, patch, patchType, force, releaseName); err != nil {
 				return err
 			}
+		}
+	} else {
+		repairPatchData, _, err := createRepairPatch(c, target, currentObj, originalObj)
+		if err != nil {
+			LastClientWarnings = append(LastClientWarnings, fmt.Sprintf("Unable to create repair patch: %s", err))
+			_ = setObjectAnnotation(target.Object, repairPatchErrorsAnnotation, err.Error())
 		} else {
-			// When patch succeeds without needing to recreate, refresh target.
-			target.Refresh(obj, true)
+			repairMessages := make([]string, 0)
+
+			isRepairPatchEmpty := len(repairPatchData) == 0 || string(repairPatchData) == "{}"
+			if !isRepairPatchEmpty {
+				// main repair instruction parts
+				mripart1 := fmt.Sprintf("%s named %s state is inconsistent with chart configuration state!", target.Mapping.GroupVersionKind.Kind, target.Name)
+				mripart2 := fmt.Sprintf("Repair patch has been written to the %s annotation of %s named %s", repairPatchAnnotation, target.Mapping.GroupVersionKind.Kind, target.Name)
+				mripart3 := "Execute the following command manually to repair resource state:"
+				mripart4 := fmt.Sprintf("kubectl -n %s patch %s %s -p '%s'", target.Namespace, target.Mapping.GroupVersionKind.Kind, target.Name, repairPatchData)
+
+				repairMessages = append(repairMessages, strings.Join([]string{
+					mripart1,
+				}, "\n"))
+
+				repairPatchWarnings, err := checkRepairPatchForWarnings(repairPatchData)
+				if err != nil {
+					LastClientWarnings = append(LastClientWarnings, fmt.Sprintf("Repair patch warnings check failed: %s", err))
+					_ = setObjectAnnotation(target.Object, repairPatchErrorsAnnotation, err.Error())
+				}
+				repairMessages = append(repairMessages, repairPatchWarnings...)
+
+				repairMessages = append(repairMessages, strings.Join([]string{
+					mripart2,
+					mripart3,
+					mripart4,
+				}, "\n"))
+
+				repairMessages = append(repairMessages, RepairDebugMessages...)
+				RepairDebugMessages = []string{}
+
+				defer func() {
+					LastClientWarnings = append(LastClientWarnings, mripart1)
+
+					for _, msg := range repairPatchWarnings {
+						LastClientWarnings = append(LastClientWarnings, msg)
+					}
+
+					LastClientWarnings = append(LastClientWarnings, mripart2)
+					LastClientWarnings = append(LastClientWarnings, mripart3)
+					// FIXME: mripart4 should be printf-ed
+					LastClientWarnings = append(LastClientWarnings, mripart4)
+				}()
+			}
+
+			repairMessagesJsonData, _ := json.Marshal(repairMessages)
+			_ = setObjectAnnotation(target.Object, repairMessagesAnnotation, string(repairMessagesJsonData))
+			_ = setObjectAnnotation(target.Object, repairPatchAnnotation, string(repairPatchData))
+		}
+
+		patch, patchType, err := createPatch(target, originalObj)
+		if err != nil {
+			return fmt.Errorf("failed to create patch: %s", err)
+		}
+
+		if debugUpdateResource() {
+			fmt.Printf("-- helm patch:\n%s\n", patch)
+		}
+
+		if patch == nil {
+			c.Log("Looks like there are no changes for %s %q", target.Mapping.GroupVersionKind.Kind, target.Name)
+			// This needs to happen to make sure that tiller has the latest info from the API
+			// Otherwise there will be no labels and other functions that use labels will panic
+			if err := target.Get(); err != nil {
+				return fmt.Errorf("error trying to refresh resource information: %v", err)
+			}
+		} else {
+			if err := sendPatchToServerAndUpdateTarget(c, target, patch, patchType, force, releaseName); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -1367,6 +1616,43 @@ func updateResource(c *Client, target *resource.Info, currentObj, originalObj ru
 	return nil
 }
 
+func sendPatchToServerAndUpdateTarget(c *Client, target *resource.Info, patch []byte, patchType types.PatchType, force bool, releaseName string) error {
+	// send patch to server
+	helper := resource.NewHelper(target.Client, target.Mapping)
+
+	obj, err := helper.Patch(target.Namespace, target.Name, patchType, patch, nil)
+	if err != nil {
+		kind := target.Mapping.GroupVersionKind.Kind
+		log.Printf("Cannot patch %s: %q (%v)", kind, target.Name, err)
+
+		if force {
+			// Attempt to delete...
+			if err := deleteResource(target); err != nil {
+				return err
+			}
+			log.Printf("Deleted %s: %q", kind, target.Name)
+
+			// ... and recreate
+			if err := createResource(target, releaseName); err != nil {
+				return fmt.Errorf("Failed to recreate resource: %s", err)
+			}
+			log.Printf("Created a new %s called %q\n", kind, target.Name)
+
+			// No need to refresh the target, as we recreated the resource based
+			// on it. In addition, it might not exist yet and a call to `Refresh`
+			// may fail.
+		} else {
+			log.Print("Use --force to force recreation of the resource")
+			return err
+		}
+	} else {
+		// When patch succeeds without needing to recreate, refresh target.
+		target.Refresh(obj, true)
+	}
+
+	return nil
+}
+
 func checkRepairPatchForWarnings(patch []byte) ([]string, error) {
 	var ignoreInstructions []string
 
@@ -1388,8 +1674,13 @@ func checkRepairPatchForWarnings(patch []byte) ([]string, error) {
 			autoscalerName = "VPA"
 		}
 
-		ignoreInstructions = append(ignoreInstructions, fmt.Sprintf("Detected %s field change in the kubernetes live object state! If you use %s autoscaler then remove this field from the resource manifest configuration of the chart.", fieldPath, autoscalerName))
-		ignoreInstructions = append(ignoreInstructions, fmt.Sprintf("Otherwise, to ignore field %[1]s changes in the kubernetes live object state add '\"%[2]s\": \"true\"' annotation to the resource manifest configuration of the chart, or use the option --add-annotation=%[2]s=true to add annotation to all deploying resources.", fieldPath, annoName))
+		ignoreInstructions = append(ignoreInstructions, fmt.Sprintf("Detected %s field change in the kubernetes live object state!", fieldPath))
+		ignoreInstructions = append(ignoreInstructions, fmt.Sprintf("If you use %s autoscaler then remove this field from the resource manifest configuration of the chart.", autoscalerName))
+		ignoreInstructions = append(ignoreInstructions, fmt.Sprintf("Otherwise, to ignore field %s changes in the kubernetes live object state add", fieldPath))
+		ignoreInstructions = append(ignoreInstructions, fmt.Sprintf("\"%s\": \"true\" annotation to the resource manifest configuration of the chart,", annoName))
+		ignoreInstructions = append(ignoreInstructions, fmt.Sprintf("or use the option --add-annotation=%s=true", annoName))
+		ignoreInstructions = append(ignoreInstructions, fmt.Sprintf("— this option will add annotation to all deployed resources."))
+
 	})
 
 	return ignoreInstructions, nil

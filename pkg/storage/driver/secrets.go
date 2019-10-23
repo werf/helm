@@ -22,7 +22,7 @@ import (
 	"strings"
 	"time"
 
-	"k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	kblabels "k8s.io/apimachinery/pkg/labels"
@@ -73,7 +73,7 @@ func (secrets *Secrets) Get(key string) (*rspb.Release, error) {
 		return nil, err
 	}
 	// found the secret, decode the base64 data string
-	r, err := decodeRelease(string(obj.Data["release"]))
+	r, err := decodeRelease(string(obj.Data["release"]), true, obj.Annotations)
 	if err != nil {
 		secrets.Log("get: failed to decode data %q: %s", key, err)
 		return nil, err
@@ -100,7 +100,7 @@ func (secrets *Secrets) List(filter func(*rspb.Release) bool) ([]*rspb.Release, 
 	// iterate over the secrets object list
 	// and decode each release
 	for _, item := range list.Items {
-		rls, err := decodeRelease(string(item.Data["release"]))
+		rls, err := decodeRelease(string(item.Data["release"]), true, item.Annotations)
 		if err != nil {
 			secrets.Log("list: failed to decode release: %v: %s", item, err)
 			continue
@@ -137,7 +137,7 @@ func (secrets *Secrets) Query(labels map[string]string) ([]*rspb.Release, error)
 
 	var results []*rspb.Release
 	for _, item := range list.Items {
-		rls, err := decodeRelease(string(item.Data["release"]))
+		rls, err := decodeRelease(string(item.Data["release"]), true, item.Annotations)
 		if err != nil {
 			secrets.Log("query: failed to decode release: %s", err)
 			continue
@@ -248,11 +248,18 @@ func newSecretsObject(key string, rls *rspb.Release, lbs labels) (*v1.Secret, er
 	lbs.set("STATUS", rspb.Status_Code_name[int32(rls.Info.Status.Code)])
 	lbs.set("VERSION", strconv.Itoa(int(rls.Version)))
 
+	var annots map[string]string
+	if rls.ThreeWayMergeEnabled {
+		annots = make(map[string]string)
+		annots[ThreeWayMergeEnabledAnnotation] = "true"
+	}
+
 	// create and return secret object
 	return &v1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:   key,
-			Labels: lbs.toMap(),
+			Name:        key,
+			Labels:      lbs.toMap(),
+			Annotations: annots,
 		},
 		Data: map[string][]byte{"release": []byte(s)},
 	}, nil
