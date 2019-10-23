@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"time"
 
 	"k8s.io/client-go/kubernetes"
 
@@ -48,36 +49,87 @@ type LocalReleaseModule struct {
 	clientset kubernetes.Interface
 }
 
+func makeReleaseInfo(r *release.Release) kube.ReleaseInfo {
+	return kube.ReleaseInfo{
+		ReleaseName:                  r.Name,
+		CreatedAt:                    time.Unix(r.Info.FirstDeployed.GetSeconds(), int64(r.Info.FirstDeployed.GetNanos())),
+		ResourcesHasOwnerReleaseName: r.ResourcesHasOwnerReleaseName,
+	}
+}
+
 // Create creates a release via kubeclient from provided environment
 func (m *LocalReleaseModule) Create(r *release.Release, req *services.InstallReleaseRequest, env *environment.Environment) error {
 	b := bytes.NewBufferString(r.Manifest)
-	return env.KubeClient.Create(r.Namespace, b, req.Timeout, req.Wait)
+	return env.KubeClient.CreateWithOptions(r.Namespace, b, kube.CreateOptions{
+		Timeout:          req.Timeout,
+		ShouldWait:       req.Wait,
+		ReleaseInfo:      makeReleaseInfo(r),
+		UseThreeWayMerge: r.ThreeWayMergeEnabled,
+	})
 }
 
 // Update performs an update from current to target release
 func (m *LocalReleaseModule) Update(current, target *release.Release, req *services.UpdateReleaseRequest, env *environment.Environment) error {
 	c := bytes.NewBufferString(current.Manifest)
 	t := bytes.NewBufferString(target.Manifest)
-	return env.KubeClient.UpdateWithOptions(target.Namespace, c, t, kube.UpdateOptions{
-		Force:         req.Force,
-		Recreate:      req.Recreate,
-		Timeout:       req.Timeout,
-		ShouldWait:    req.Wait,
-		CleanupOnFail: req.CleanupOnFail,
-	})
+
+	shouldSetOwnerReleaseToOldResources := false
+	if !current.ResourcesHasOwnerReleaseName {
+		shouldSetOwnerReleaseToOldResources = true
+	}
+
+	if err := env.KubeClient.UpdateWithOptions(target.Namespace, c, t, kube.UpdateOptions{
+		Force:                         req.Force,
+		Recreate:                      req.Recreate,
+		Timeout:                       req.Timeout,
+		ShouldWait:                    req.Wait,
+		CleanupOnFail:                 req.CleanupOnFail,
+		ReleaseInfo:                   makeReleaseInfo(target),
+		UseThreeWayMerge:              target.ThreeWayMergeEnabled,
+		SetOwnerReleaseToOldResources: shouldSetOwnerReleaseToOldResources,
+	}); err != nil {
+		return err
+	}
+
+	if shouldSetOwnerReleaseToOldResources {
+		// After successful update we assume that all release resources
+		// have service.werf.io/owner-release annotation set
+		target.ResourcesHasOwnerReleaseName = true
+	}
+
+	return nil
 }
 
 // Rollback performs a rollback from current to target release
 func (m *LocalReleaseModule) Rollback(current, target *release.Release, req *services.RollbackReleaseRequest, env *environment.Environment) error {
 	c := bytes.NewBufferString(current.Manifest)
 	t := bytes.NewBufferString(target.Manifest)
-	return env.KubeClient.UpdateWithOptions(target.Namespace, c, t, kube.UpdateOptions{
-		Force:         req.Force,
-		Recreate:      req.Recreate,
-		Timeout:       req.Timeout,
-		ShouldWait:    req.Wait,
-		CleanupOnFail: req.CleanupOnFail,
-	})
+
+	shouldSetOwnerReleaseToOldResources := false
+	if !current.ResourcesHasOwnerReleaseName {
+		shouldSetOwnerReleaseToOldResources = true
+	}
+
+	if err := env.KubeClient.UpdateWithOptions(target.Namespace, c, t, kube.UpdateOptions{
+		Force:                         req.Force,
+		Recreate:                      req.Recreate,
+		Timeout:                       req.Timeout,
+		ShouldWait:                    req.Wait,
+		CleanupOnFail:                 req.CleanupOnFail,
+		ReleaseInfo:                   makeReleaseInfo(target),
+		UseThreeWayMerge:              target.ThreeWayMergeEnabled,
+		SetOwnerReleaseToOldResources: shouldSetOwnerReleaseToOldResources,
+	}); err != nil {
+		return err
+	}
+
+	if shouldSetOwnerReleaseToOldResources {
+		// After successful update we assume that all release resources
+		// have service.werf.io/owner-release annotation set
+		target.ResourcesHasOwnerReleaseName = true
+	}
+
+	return nil
 }
 
 // Status returns kubectl-like formatted status of release objects
@@ -181,7 +233,7 @@ func DeleteRelease(rel *release.Release, vs chartutil.VersionSet, kubeClient env
 		if b.Len() == 0 {
 			continue
 		}
-		if err := kubeClient.Delete(rel.Namespace, b); err != nil {
+		if err := kubeClient.DeleteWithOptions(rel.Namespace, b, kube.DeleteOptions{ReleaseInfo: makeReleaseInfo(rel)}); err != nil {
 			log.Printf("uninstall: Failed deletion of %q: %s", rel.Name, err)
 			if err == kube.ErrNoObjectsVisited {
 				// Rewrite the message from "no objects visited"

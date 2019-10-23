@@ -18,8 +18,9 @@ package tiller
 
 import (
 	"fmt"
-	"k8s.io/helm/pkg/storage"
 	"strings"
+
+	"k8s.io/helm/pkg/storage"
 
 	ctx "golang.org/x/net/context"
 
@@ -110,9 +111,21 @@ func (s *ReleaseServer) prepareRollback(req *services.RollbackReleaseRequest) (*
 			// message here, and only override it later if we experience failure.
 			Description: description,
 		},
-		Version:  currentRelease.Version + 1,
-		Manifest: previousRelease.Manifest,
-		Hooks:    previousRelease.Hooks,
+		Version:                      currentRelease.Version + 1,
+		Manifest:                     previousRelease.Manifest,
+		Hooks:                        previousRelease.Hooks,
+		ResourcesHasOwnerReleaseName: currentRelease.ResourcesHasOwnerReleaseName,
+	}
+
+	switch req.ThreeWayMergeMode {
+	case services.ThreeWayMergeMode_disabled:
+		targetRelease.ThreeWayMergeEnabled = false
+	case services.ThreeWayMergeMode_enabled:
+		targetRelease.ThreeWayMergeEnabled = true
+	case services.ThreeWayMergeMode_onlyNewReleases:
+		targetRelease.ThreeWayMergeEnabled = currentRelease.ThreeWayMergeEnabled
+	default:
+		panic("non empty req.ThreeWayMergeMode required!")
 	}
 
 	return currentRelease, targetRelease, nil
@@ -128,7 +141,7 @@ func (s *ReleaseServer) performRollback(currentRelease, targetRelease *release.R
 
 	// pre-rollback hooks
 	if !req.DisableHooks {
-		if err := s.execHook(targetRelease.Hooks, targetRelease.Name, targetRelease.Namespace, hooks.PreRollback, req.Timeout); err != nil {
+		if err := s.execHook(targetRelease.Hooks, targetRelease.Name, targetRelease.Namespace, hooks.PreRollback, req.Timeout, makeReleaseInfo(targetRelease)); err != nil {
 			return res, err
 		}
 	} else {
@@ -148,7 +161,7 @@ func (s *ReleaseServer) performRollback(currentRelease, targetRelease *release.R
 
 	// post-rollback hooks
 	if !req.DisableHooks {
-		if err := s.execHook(targetRelease.Hooks, targetRelease.Name, targetRelease.Namespace, hooks.PostRollback, req.Timeout); err != nil {
+		if err := s.execHook(targetRelease.Hooks, targetRelease.Name, targetRelease.Namespace, hooks.PostRollback, req.Timeout, makeReleaseInfo(targetRelease)); err != nil {
 			return res, err
 		}
 	}
