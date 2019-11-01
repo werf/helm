@@ -154,7 +154,7 @@ func (s *SQL) Get(key string) (*rspb.Release, error) {
 		return nil, storageerrors.ErrReleaseNotFound(key)
 	}
 
-	release, err := decodeRelease(record.Body)
+	release, err := decodeRelease(record.Body, false, nil)
 	if err != nil {
 		s.Log("get: failed to decode data %q: %v", key, err)
 		return nil, err
@@ -173,7 +173,7 @@ func (s *SQL) List(filter func(*rspb.Release) bool) ([]*rspb.Release, error) {
 
 	var releases []*rspb.Release
 	for _, record := range records {
-		release, err := decodeRelease(record.Body)
+		release, err := decodeRelease(record.Body, false, nil)
 		if err != nil {
 			s.Log("list: failed to decode release: %v: %v", record, err)
 			continue
@@ -225,7 +225,7 @@ func (s *SQL) Query(labels map[string]string) ([]*rspb.Release, error) {
 			return nil, err
 		}
 
-		release, err := decodeRelease(record.Body)
+		release, err := decodeRelease(record.Body, false, nil)
 		if err != nil {
 			s.Log("failed to decode release: %v", err)
 			continue
@@ -323,7 +323,7 @@ func (s *SQL) Delete(key string) (*rspb.Release, error) {
 		return nil, storageerrors.ErrReleaseNotFound(key)
 	}
 
-	release, err := decodeRelease(record.Body)
+	release, err := decodeRelease(record.Body, false, nil)
 	if err != nil {
 		s.Log("failed to decode release %s: %v", key, err)
 		transaction.Rollback()
