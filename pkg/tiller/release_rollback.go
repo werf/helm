@@ -141,7 +141,7 @@ func (s *ReleaseServer) performRollback(currentRelease, targetRelease *release.R
 
 	// pre-rollback hooks
 	if !req.DisableHooks {
-		if err := s.execHook(targetRelease.Hooks, targetRelease.Name, targetRelease.Namespace, hooks.PreRollback, req.Timeout, targetRelease.ThreeWayMergeEnabled, makeReleaseInfo(targetRelease)); err != nil {
+		if err := s.execHook(targetRelease.Hooks, targetRelease.Name, targetRelease.Namespace, hooks.PreRollback, req.Timeout, makeReleaseInfo(targetRelease)); err != nil {
 			return res, err
 		}
 	} else {
@@ -161,7 +161,7 @@ func (s *ReleaseServer) performRollback(currentRelease, targetRelease *release.R
 
 	// post-rollback hooks
 	if !req.DisableHooks {
-		if err := s.execHook(targetRelease.Hooks, targetRelease.Name, targetRelease.Namespace, hooks.PostRollback, req.Timeout, targetRelease.ThreeWayMergeEnabled, makeReleaseInfo(targetRelease)); err != nil {
+		if err := s.execHook(targetRelease.Hooks, targetRelease.Name, targetRelease.Namespace, hooks.PostRollback, req.Timeout, makeReleaseInfo(targetRelease)); err != nil {
 			return res, err
 		}
 	}

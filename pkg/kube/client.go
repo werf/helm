@@ -643,10 +643,9 @@ func (c *Client) DeleteWithTimeout(namespace string, reader io.Reader, timeout i
 }
 
 type DeleteOptions struct {
-	Timeout          int64
-	ShouldWait       bool
-	UseThreeWayMerge bool
-	ReleaseInfo      ReleaseInfo
+	Timeout     int64
+	ShouldWait  bool
+	ReleaseInfo ReleaseInfo
 }
 
 // Delete deletes Kubernetes resources from an io.reader. If ShouldWait is true, the function
@@ -882,12 +881,24 @@ func createResource(info *resource.Info, releaseInfo ReleaseInfo) error {
 func deleteResource(info *resource.Info, releaseInfo ReleaseInfo) error {
 	deleteAllowed := true
 
+	// TODO: can be useful to prevent werf from deleting objects created before release exists
+	//objAccessor, err := meta.Accessor(info.Object)
+	//if err != nil {
+	//	return fmt.Errorf("unable to access metadata of %s/%s: %s", info.Mapping.GroupVersionKind.Kind, info.Name, err)
+	//}
+	//_ = objAccessor
+	//if objAccessor.GetCreationTimestamp().Before(&releaseInfo.CreatedAt) {
+	//	deleteAllowed = false
+	//}
+
 	if releaseInfo.ResourcesHasOwnerReleaseName {
 		// Do not delete resources of FAILED release which does not belong to the release
 
 		helper := resource.NewHelper(info.Client, info.Mapping)
 		currentObj, err := helper.Get(info.Namespace, info.Name, info.Export)
-		if err != nil {
+		if errors.IsNotFound(err) {
+			return nil
+		} else if err != nil {
 			return fmt.Errorf("unable to get object %s/%s: %s", info.Mapping.GroupVersionKind.Kind, info.Name, err)
 		}
 

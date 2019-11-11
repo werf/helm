@@ -181,7 +181,7 @@ func (s *ReleaseServer) performRelease(r *release.Release, req *services.Install
 
 	// crd-install hooks
 	if !req.DisableHooks && !req.DisableCrdHook {
-		if err := s.execHook(r.Hooks, r.Name, r.Namespace, hooks.CRDInstall, req.Timeout, r.ThreeWayMergeEnabled, makeReleaseInfo(r)); err != nil {
+		if err := s.execHook(r.Hooks, r.Name, r.Namespace, hooks.CRDInstall, req.Timeout, makeReleaseInfo(r)); err != nil {
 			fmt.Printf("Finished installing CRD: %s", err)
 			return res, err
 		}
@@ -196,7 +196,7 @@ func (s *ReleaseServer) performRelease(r *release.Release, req *services.Install
 
 	// pre-install hooks
 	if !req.DisableHooks {
-		if err := s.execHook(r.Hooks, r.Name, r.Namespace, hooks.PreInstall, req.Timeout, r.ThreeWayMergeEnabled, makeReleaseInfo(r)); err != nil {
+		if err := s.execHook(r.Hooks, r.Name, r.Namespace, hooks.PreInstall, req.Timeout, makeReleaseInfo(r)); err != nil {
 			return res, err
 		}
 	} else {
@@ -254,7 +254,7 @@ func (s *ReleaseServer) performRelease(r *release.Release, req *services.Install
 
 	// post-install hooks
 	if !req.DisableHooks {
-		if err := s.execHook(r.Hooks, r.Name, r.Namespace, hooks.PostInstall, req.Timeout, r.ThreeWayMergeEnabled, makeReleaseInfo(r)); err != nil {
+		if err := s.execHook(r.Hooks, r.Name, r.Namespace, hooks.PostInstall, req.Timeout, makeReleaseInfo(r)); err != nil {
 			msg := fmt.Sprintf("Release %q failed post-install: %s", r.Name, err)
 			s.Log("warning: %s", msg)
 			r.Info.Status.Code = release.Status_FAILED

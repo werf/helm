@@ -68,7 +68,7 @@ func (s *ReleaseServer) UninstallRelease(c ctx.Context, req *services.UninstallR
 	res := &services.UninstallReleaseResponse{Release: rel}
 
 	if !req.DisableHooks {
-		if err := s.execHook(rel.Hooks, rel.Name, rel.Namespace, hooks.PreDelete, req.Timeout, rel.ThreeWayMergeEnabled, makeReleaseInfo(rel)); err != nil {
+		if err := s.execHook(rel.Hooks, rel.Name, rel.Namespace, hooks.PreDelete, req.Timeout, makeReleaseInfo(rel)); err != nil {
 			return res, err
 		}
 	} else {
@@ -91,7 +91,7 @@ func (s *ReleaseServer) UninstallRelease(c ctx.Context, req *services.UninstallR
 	}
 
 	if !req.DisableHooks {
-		if err := s.execHook(rel.Hooks, rel.Name, rel.Namespace, hooks.PostDelete, req.Timeout, rel.ThreeWayMergeEnabled, makeReleaseInfo(rel)); err != nil {
+		if err := s.execHook(rel.Hooks, rel.Name, rel.Namespace, hooks.PostDelete, req.Timeout, makeReleaseInfo(rel)); err != nil {
 			es = append(es, err.Error())
 		}
 	}

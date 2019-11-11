@@ -207,7 +207,7 @@ func (s *ReleaseServer) performUpdateForce(req *services.UpdateReleaseRequest) (
 
 	// pre-delete hooks
 	if !req.DisableHooks {
-		if err := s.execHook(oldRelease.Hooks, oldRelease.Name, oldRelease.Namespace, hooks.PreDelete, req.Timeout, oldRelease.ThreeWayMergeEnabled, makeReleaseInfo(oldRelease)); err != nil {
+		if err := s.execHook(oldRelease.Hooks, oldRelease.Name, oldRelease.Namespace, hooks.PreDelete, req.Timeout, makeReleaseInfo(oldRelease)); err != nil {
 			return res, err
 		}
 	} else {
@@ -232,14 +232,14 @@ func (s *ReleaseServer) performUpdateForce(req *services.UpdateReleaseRequest) (
 
 	// post-delete hooks
 	if !req.DisableHooks {
-		if err := s.execHook(oldRelease.Hooks, oldRelease.Name, oldRelease.Namespace, hooks.PostDelete, req.Timeout, oldRelease.ThreeWayMergeEnabled, makeReleaseInfo(oldRelease)); err != nil {
+		if err := s.execHook(oldRelease.Hooks, oldRelease.Name, oldRelease.Namespace, hooks.PostDelete, req.Timeout, makeReleaseInfo(oldRelease)); err != nil {
 			return res, err
 		}
 	}
 
 	// pre-install hooks
 	if !req.DisableHooks {
-		if err := s.execHook(newRelease.Hooks, newRelease.Name, newRelease.Namespace, hooks.PreInstall, req.Timeout, newRelease.ThreeWayMergeEnabled, makeReleaseInfo(newRelease)); err != nil {
+		if err := s.execHook(newRelease.Hooks, newRelease.Name, newRelease.Namespace, hooks.PreInstall, req.Timeout, makeReleaseInfo(newRelease)); err != nil {
 			return res, err
 		}
 	}
@@ -256,7 +256,7 @@ func (s *ReleaseServer) performUpdateForce(req *services.UpdateReleaseRequest) (
 
 	// post-install hooks
 	if !req.DisableHooks {
-		if err := s.execHook(newRelease.Hooks, newRelease.Name, newRelease.Namespace, hooks.PostInstall, req.Timeout, newRelease.ThreeWayMergeEnabled, makeReleaseInfo(newRelease)); err != nil {
+		if err := s.execHook(newRelease.Hooks, newRelease.Name, newRelease.Namespace, hooks.PostInstall, req.Timeout, makeReleaseInfo(newRelease)); err != nil {
 			msg := fmt.Sprintf("Release %q failed post-install: %s", newRelease.Name, err)
 			s.Log("warning: %s", msg)
 			newRelease.Info.Status.Code = release.Status_FAILED
@@ -288,7 +288,7 @@ func (s *ReleaseServer) performUpdate(originalRelease, updatedRelease *release.R
 
 	// pre-upgrade hooks
 	if !req.DisableHooks {
-		if err := s.execHook(updatedRelease.Hooks, updatedRelease.Name, updatedRelease.Namespace, hooks.PreUpgrade, req.Timeout, updatedRelease.ThreeWayMergeEnabled, makeReleaseInfo(updatedRelease)); err != nil {
+		if err := s.execHook(updatedRelease.Hooks, updatedRelease.Name, updatedRelease.Namespace, hooks.PreUpgrade, req.Timeout, makeReleaseInfo(updatedRelease)); err != nil {
 			return res, err
 		}
 	} else {
@@ -306,7 +306,7 @@ func (s *ReleaseServer) performUpdate(originalRelease, updatedRelease *release.R
 
 	// post-upgrade hooks
 	if !req.DisableHooks {
-		if err := s.execHook(updatedRelease.Hooks, updatedRelease.Name, updatedRelease.Namespace, hooks.PostUpgrade, req.Timeout, updatedRelease.ThreeWayMergeEnabled, makeReleaseInfo(updatedRelease)); err != nil {
+		if err := s.execHook(updatedRelease.Hooks, updatedRelease.Name, updatedRelease.Namespace, hooks.PostUpgrade, req.Timeout, makeReleaseInfo(updatedRelease)); err != nil {
 			return res, err
 		}
 	}

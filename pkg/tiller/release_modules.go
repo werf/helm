@@ -216,7 +216,7 @@ func DeleteRelease(rel *release.Release, vs chartutil.VersionSet, kubeClient env
 		if b.Len() == 0 {
 			continue
 		}
-		if err := kubeClient.DeleteWithOptions(rel.Namespace, b, kube.DeleteOptions{ReleaseInfo: makeReleaseInfo(rel), UseThreeWayMerge: rel.ThreeWayMergeEnabled}); err != nil {
+		if err := kubeClient.DeleteWithOptions(rel.Namespace, b, kube.DeleteOptions{ReleaseInfo: makeReleaseInfo(rel)}); err != nil {
 			log.Printf("uninstall: Failed deletion of %q: %s", rel.Name, err)
 			if err == kube.ErrNoObjectsVisited {
 				// Rewrite the message from "no objects visited"
