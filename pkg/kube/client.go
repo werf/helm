@@ -602,7 +602,7 @@ func (c *Client) UpdateWithOptions(namespace string, originalReader, targetReade
 			continue
 		}
 
-		if err := deleteResource(info, opts.ReleaseInfo); err != nil {
+		if err := deleteResource(info, opts.ReleaseInfo, false); err != nil {
 			c.Log("Failed to delete %q, err: %s", info.Name, err)
 		}
 	}
@@ -624,7 +624,7 @@ func (c *Client) cleanup(newlyCreatedResources []*resource.Info, releaseInfo Rel
 	for _, info := range newlyCreatedResources {
 		kind := info.Mapping.GroupVersionKind.Kind
 		c.Log("Deleting newly created %s with the name %q in %s...", kind, info.Name, info.Namespace)
-		if err := deleteResource(info, releaseInfo); err != nil {
+		if err := deleteResource(info, releaseInfo, false); err != nil {
 			c.Log("Error deleting newly created %s with the name %q in %s: %s", kind, info.Name, info.Namespace, err)
 			cleanupErrors = append(cleanupErrors, err.Error())
 		}
@@ -643,9 +643,10 @@ func (c *Client) DeleteWithTimeout(namespace string, reader io.Reader, timeout i
 }
 
 type DeleteOptions struct {
-	Timeout     int64
-	ShouldWait  bool
-	ReleaseInfo ReleaseInfo
+	Timeout                                    int64
+	ShouldWait                                 bool
+	ReleaseInfo                                ReleaseInfo
+	AllowDeletionOfResourceWithoutOwnerRelease bool
 }
 
 // Delete deletes Kubernetes resources from an io.reader. If ShouldWait is true, the function
@@ -660,7 +661,7 @@ func (c *Client) DeleteWithOptions(namespace string, reader io.Reader, opts Dele
 	}
 	err = perform(infos, func(info *resource.Info) error {
 		c.Log("Starting delete for %q %s", info.Name, info.Mapping.GroupVersionKind.Kind)
-		err := deleteResource(info, opts.ReleaseInfo)
+		err := deleteResource(info, opts.ReleaseInfo, opts.AllowDeletionOfResourceWithoutOwnerRelease)
 		return c.skipIfNotFound(err)
 	})
 	if err != nil {
@@ -878,7 +879,7 @@ func createResource(info *resource.Info, releaseInfo ReleaseInfo) error {
 	return info.Refresh(obj, true)
 }
 
-func deleteResource(info *resource.Info, releaseInfo ReleaseInfo) error {
+func deleteResource(info *resource.Info, releaseInfo ReleaseInfo, allowDeletionOfResourceWithoutOwnerRelease bool) error {
 	deleteAllowed := true
 
 	// TODO: can be useful to prevent werf from deleting objects created before release exists
@@ -891,7 +892,7 @@ func deleteResource(info *resource.Info, releaseInfo ReleaseInfo) error {
 	//	deleteAllowed = false
 	//}
 
-	if releaseInfo.ResourcesHasOwnerReleaseName {
+	if releaseInfo.ResourcesHasOwnerReleaseName && !allowDeletionOfResourceWithoutOwnerRelease {
 		// Do not delete resources of FAILED release which does not belong to the release
 
 		helper := resource.NewHelper(info.Client, info.Mapping)
@@ -1713,7 +1714,7 @@ func sendPatchToServerAndUpdateTarget(c *Client, target *resource.Info, patch []
 
 		if force {
 			// Attempt to delete...
-			if err := deleteResource(target, releaseInfo); err != nil {
+			if err := deleteResource(target, releaseInfo, false); err != nil {
 				return err
 			}
 			log.Printf("Deleted %s: %q", kind, target.Name)

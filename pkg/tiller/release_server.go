@@ -444,7 +444,6 @@ func (s *ReleaseServer) execHook(hs []*release.Hook, name, namespace, hook strin
 	executingHooks = sortByHookWeight(executingHooks)
 
 	for _, h := range executingHooks {
-		fmt.Printf("deleteHookByPolicy %s\n", hooks.BeforeHookCreation)
 		if err := s.deleteHookByPolicy(h, hooks.BeforeHookCreation, name, namespace, hook, releaseInfo, kubeCli); err != nil {
 			return err
 		}
@@ -512,7 +511,7 @@ func (s *ReleaseServer) deleteHookByPolicy(h *release.Hook, policy string, name,
 	if hookHasDeletePolicy(h, policy) {
 		s.Log("deleting %s hook %s for release %s due to %q policy", hook, h.Name, name, policy)
 		waitForDelete := h.DeleteTimeout > 0
-		if errHookDelete := kubeCli.DeleteWithOptions(namespace, b, kube.DeleteOptions{Timeout: h.DeleteTimeout, ShouldWait: waitForDelete, ReleaseInfo: releaseInfo}); errHookDelete != nil {
+		if errHookDelete := kubeCli.DeleteWithOptions(namespace, b, kube.DeleteOptions{Timeout: h.DeleteTimeout, ShouldWait: waitForDelete, ReleaseInfo: releaseInfo, AllowDeletionOfResourceWithoutOwnerRelease: (policy == hooks.BeforeHookCreation)}); errHookDelete != nil {
 			s.Log("warning: Release %s %s %S could not be deleted: %s", name, hook, h.Path, errHookDelete)
 			return errHookDelete
 		}
