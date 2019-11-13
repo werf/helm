@@ -73,9 +73,9 @@ func (m *LocalReleaseModule) Update(current, target *release.Release, req *servi
 	c := bytes.NewBufferString(current.Manifest)
 	t := bytes.NewBufferString(target.Manifest)
 
-	shouldSetOwnerReleaseToOldResouces := false
+	shouldSetOwnerReleaseToOldResources := false
 	if !current.ResourcesHasOwnerReleaseName {
-		shouldSetOwnerReleaseToOldResouces = true
+		shouldSetOwnerReleaseToOldResources = true
 	}
 
 	if err := env.KubeClient.UpdateWithOptions(target.Namespace, c, t, kube.UpdateOptions{
@@ -86,12 +86,12 @@ func (m *LocalReleaseModule) Update(current, target *release.Release, req *servi
 		CleanupOnFail:                 req.CleanupOnFail,
 		ReleaseInfo:                   makeReleaseInfo(target),
 		UseThreeWayMerge:              target.ThreeWayMergeEnabled,
-		SetOwnerReleaseToOldResources: shouldSetOwnerReleaseToOldResouces,
+		SetOwnerReleaseToOldResources: shouldSetOwnerReleaseToOldResources,
 	}); err != nil {
 		return err
 	}
 
-	if shouldSetOwnerReleaseToOldResouces {
+	if shouldSetOwnerReleaseToOldResources {
 		// After successful update we assume that all release resources
 		// have service.werf.io/owner-release annotation set
 		target.ResourcesHasOwnerReleaseName = true
@@ -104,15 +104,32 @@ func (m *LocalReleaseModule) Update(current, target *release.Release, req *servi
 func (m *LocalReleaseModule) Rollback(current, target *release.Release, req *services.RollbackReleaseRequest, env *environment.Environment) error {
 	c := bytes.NewBufferString(current.Manifest)
 	t := bytes.NewBufferString(target.Manifest)
-	return env.KubeClient.UpdateWithOptions(target.Namespace, c, t, kube.UpdateOptions{
-		Force:            req.Force,
-		Recreate:         req.Recreate,
-		Timeout:          req.Timeout,
-		ShouldWait:       req.Wait,
-		CleanupOnFail:    req.CleanupOnFail,
-		ReleaseInfo:      makeReleaseInfo(target),
-		UseThreeWayMerge: target.ThreeWayMergeEnabled,
-	})
+
+	shouldSetOwnerReleaseToOldResources := false
+	if !current.ResourcesHasOwnerReleaseName {
+		shouldSetOwnerReleaseToOldResources = true
+	}
+
+	if err := env.KubeClient.UpdateWithOptions(target.Namespace, c, t, kube.UpdateOptions{
+		Force:                         req.Force,
+		Recreate:                      req.Recreate,
+		Timeout:                       req.Timeout,
+		ShouldWait:                    req.Wait,
+		CleanupOnFail:                 req.CleanupOnFail,
+		ReleaseInfo:                   makeReleaseInfo(target),
+		UseThreeWayMerge:              target.ThreeWayMergeEnabled,
+		SetOwnerReleaseToOldResources: shouldSetOwnerReleaseToOldResources,
+	}); err != nil {
+		return err
+	}
+
+	if shouldSetOwnerReleaseToOldResources {
+		// After successful update we assume that all release resources
+		// have service.werf.io/owner-release annotation set
+		target.ResourcesHasOwnerReleaseName = true
+	}
+
+	return nil
 }
 
 // Status returns kubectl-like formatted status of release objects
