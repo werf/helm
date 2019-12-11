@@ -1197,7 +1197,7 @@ func createFinalThreeWayMergePatch(c *Client, target *resource.Info, currentObj,
 	if err != nil {
 		return nil, "", fmt.Errorf("serializing current configuration: %s", err)
 	}
-	filteredCurrentData, err := filterManifestForRepairPatch(currentData, isReplicasOnlyOnCreation, isResourcesOnlyOnCreation, filterManifestOptions{FilterVolumesDownwardApi: true})
+	filteredCurrentData, err := filterManifestForPatch(currentData, isReplicasOnlyOnCreation, isResourcesOnlyOnCreation, filterManifestOptions{OnlyReplicasAndResources: true})
 	if err != nil {
 		return nil, "", fmt.Errorf("unable to filter current manifest: %s", err)
 	}
@@ -1210,7 +1210,7 @@ func createFinalThreeWayMergePatch(c *Client, target *resource.Info, currentObj,
 	if err != nil {
 		return nil, "", fmt.Errorf("serializing target configuration: %s", err)
 	}
-	filteredTargetData, err := filterManifestForRepairPatch(targetData, isReplicasOnlyOnCreation, isResourcesOnlyOnCreation, filterManifestOptions{})
+	filteredTargetData, err := filterManifestForPatch(targetData, isReplicasOnlyOnCreation, isResourcesOnlyOnCreation, filterManifestOptions{OnlyReplicasAndResources: true})
 	if err != nil {
 		return nil, "", fmt.Errorf("unable to filter target manifest: %s", err)
 	}
@@ -1223,7 +1223,73 @@ func createFinalThreeWayMergePatch(c *Client, target *resource.Info, currentObj,
 	if err != nil {
 		return nil, "", fmt.Errorf("serializing original configuration: %s", err)
 	}
-	filteredOriginalData, err := filterManifestForRepairPatch(originalData, isReplicasOnlyOnCreation, isResourcesOnlyOnCreation, filterManifestOptions{})
+	filteredOriginalData, err := filterManifestForPatch(originalData, isReplicasOnlyOnCreation, isResourcesOnlyOnCreation, filterManifestOptions{OnlyReplicasAndResources: true})
+	if err != nil {
+		return nil, "", fmt.Errorf("unable to filter original manifest: %s", err)
+	}
+	if debugUpdateResource() {
+		fmt.Printf("-- originalData:\n%s\n", originalData)
+		fmt.Printf("-- filteredOriginalData:\n%s\n", filteredOriginalData)
+	}
+
+	finalPatch, finalPatchType, err := createThreeWayMergePatch(target, filteredOriginalData, filteredTargetData, filteredCurrentData)
+	if err != nil {
+		return nil, "", fmt.Errorf("unable to create three-way-merge patch: %s", err)
+	}
+	if debugUpdateResource() {
+		fmt.Printf("-- finalPatch:\n%s\n", finalPatch)
+		fmt.Printf("-- finalPatchType:\n%s\n", finalPatch)
+	}
+
+	return finalPatch, finalPatchType, nil
+}
+
+func createFinalThreeWayMergePatchWithFullFiltration(c *Client, target *resource.Info, currentObj, originalObj runtime.Object) ([]byte, types.PatchType, error) {
+	setObjectAnnotation(originalObj, repairPatchAnnotation, getObjectAnnotation(currentObj, repairPatchAnnotation))
+	setObjectAnnotation(originalObj, repairPatchErrorsAnnotation, getObjectAnnotation(currentObj, repairPatchErrorsAnnotation))
+	setObjectAnnotation(originalObj, repairMessagesAnnotation, getObjectAnnotation(currentObj, repairMessagesAnnotation))
+
+	deleteObjectAnnotaion(target.Object, repairPatchAnnotation)
+	deleteObjectAnnotaion(target.Object, repairPatchErrorsAnnotation)
+	deleteObjectAnnotaion(target.Object, repairMessagesAnnotation)
+
+	setReplicasOnlyOnCreationAnnoValue := getObjectAnnotation(target.Object, SetReplicasOnlyOnCreationAnnotation)
+	setResourcesOnlyOnCreationAnnoValue := getObjectAnnotation(target.Object, SetResourcesOnlyOnCreationAnnotation)
+
+	isReplicasOnlyOnCreation := setReplicasOnlyOnCreationAnnoValue == "true"
+	isResourcesOnlyOnCreation := setResourcesOnlyOnCreationAnnoValue == "true"
+
+	currentData, err := json.Marshal(currentObj)
+	if err != nil {
+		return nil, "", fmt.Errorf("serializing current configuration: %s", err)
+	}
+	filteredCurrentData, err := filterManifestForPatch(currentData, isReplicasOnlyOnCreation, isResourcesOnlyOnCreation, filterManifestOptions{FilterVolumesDownwardApi: true})
+	if err != nil {
+		return nil, "", fmt.Errorf("unable to filter current manifest: %s", err)
+	}
+	if debugUpdateResource() {
+		fmt.Printf("-- currentData:\n%s\n", currentData)
+		fmt.Printf("-- filteredCurrentData:\n%s\n", filteredCurrentData)
+	}
+
+	targetData, err := json.Marshal(target.Object)
+	if err != nil {
+		return nil, "", fmt.Errorf("serializing target configuration: %s", err)
+	}
+	filteredTargetData, err := filterManifestForPatch(targetData, isReplicasOnlyOnCreation, isResourcesOnlyOnCreation, filterManifestOptions{})
+	if err != nil {
+		return nil, "", fmt.Errorf("unable to filter target manifest: %s", err)
+	}
+	if debugUpdateResource() {
+		fmt.Printf("-- targetData:\n%s\n", targetData)
+		fmt.Printf("-- filteredTargetData:\n%s\n", filteredTargetData)
+	}
+
+	originalData, err := json.Marshal(originalObj)
+	if err != nil {
+		return nil, "", fmt.Errorf("serializing original configuration: %s", err)
+	}
+	filteredOriginalData, err := filterManifestForPatch(originalData, isReplicasOnlyOnCreation, isResourcesOnlyOnCreation, filterManifestOptions{})
 	if err != nil {
 		return nil, "", fmt.Errorf("unable to filter original manifest: %s", err)
 	}
@@ -1286,7 +1352,7 @@ func createRepairPatch(c *Client, target *resource.Info, currentObj, originalObj
 	if err != nil {
 		return nil, "", fmt.Errorf("serializing current configuration: %s", err)
 	}
-	filteredCurrentData, err := filterManifestForRepairPatch(currentData, isReplicasOnlyOnCreation, isResourcesOnlyOnCreation, filterManifestOptions{FilterVolumesDownwardApi: true})
+	filteredCurrentData, err := filterManifestForPatch(currentData, isReplicasOnlyOnCreation, isResourcesOnlyOnCreation, filterManifestOptions{FilterVolumesDownwardApi: true})
 	if err != nil {
 		return nil, "", fmt.Errorf("unable to filter current manifest: %s", err)
 	}
@@ -1299,7 +1365,7 @@ func createRepairPatch(c *Client, target *resource.Info, currentObj, originalObj
 	if err != nil {
 		return nil, "", fmt.Errorf("serializing target configuration: %s", err)
 	}
-	filteredTargetData, err := filterManifestForRepairPatch(targetData, isReplicasOnlyOnCreation, isResourcesOnlyOnCreation, filterManifestOptions{})
+	filteredTargetData, err := filterManifestForPatch(targetData, isReplicasOnlyOnCreation, isResourcesOnlyOnCreation, filterManifestOptions{})
 	if err != nil {
 		return nil, "", fmt.Errorf("unable to filter target manifest: %s", err)
 	}
@@ -1330,7 +1396,7 @@ func createRepairPatch(c *Client, target *resource.Info, currentObj, originalObj
 		return nil, "", fmt.Errorf("unable to construct new current state using helm-apply two-way merge patch: %s", err)
 	}
 	// Filter is needed because helmApplyPatch was created as in helm without filters to target and original
-	filteredCurrentDataAfterHelmApply, err := filterManifestForRepairPatch(currentDataAfterHelmApply, isReplicasOnlyOnCreation, isResourcesOnlyOnCreation, filterManifestOptions{FilterVolumesDownwardApi: true})
+	filteredCurrentDataAfterHelmApply, err := filterManifestForPatch(currentDataAfterHelmApply, isReplicasOnlyOnCreation, isResourcesOnlyOnCreation, filterManifestOptions{FilterVolumesDownwardApi: true})
 	if err != nil {
 		return nil, "", fmt.Errorf("unable to filter current manifest after helm apply: %s", err)
 	}
@@ -1472,69 +1538,72 @@ func getMapByIndex(dataSlice []interface{}, index int) map[string]interface{} {
 }
 
 type filterManifestOptions struct {
+	OnlyReplicasAndResources bool
 	FilterVolumesDownwardApi bool
 }
 
-func filterManifestForRepairPatch(manifest []byte, isReplicasOnlyOnCreation, isResourcesOnlyOnCreation bool, opts filterManifestOptions) ([]byte, error) {
+func filterManifestForPatch(manifest []byte, isReplicasOnlyOnCreation, isResourcesOnlyOnCreation bool, opts filterManifestOptions) ([]byte, error) {
 	var dataMap map[string]interface{}
 	if err := json.Unmarshal(manifest, &dataMap); err != nil {
 		return nil, fmt.Errorf("unable to unmarshal manifest json: %s", err)
 	}
 
-	if spec := getMapByKey(dataMap, "spec"); spec != nil {
-		if template := getMapByKey(spec, "template"); template != nil {
-			if spec := getMapByKey(template, "spec"); spec != nil {
-				if containers := getSliceByKey(spec, "containers"); containers != nil {
-					for i := range containers {
-						if container := getMapByIndex(containers, i); container != nil {
-							// Remove empty (null or "") container env "value" fields
-							if env := getSliceByKey(container, "env"); env != nil {
-								for i := range env {
-									if envElem := getMapByIndex(env, i); envElem != nil {
-										valueI := envElem["value"]
-										if valueI == nil {
-											delete(envElem, "value")
-										} else {
-											valueStr := fmt.Sprintf("%v", valueI)
-											if valueStr == "" {
+	if !opts.OnlyReplicasAndResources {
+		if spec := getMapByKey(dataMap, "spec"); spec != nil {
+			if template := getMapByKey(spec, "template"); template != nil {
+				if spec := getMapByKey(template, "spec"); spec != nil {
+					if containers := getSliceByKey(spec, "containers"); containers != nil {
+						for i := range containers {
+							if container := getMapByIndex(containers, i); container != nil {
+								// Remove empty (null or "") container env "value" fields
+								if env := getSliceByKey(container, "env"); env != nil {
+									for i := range env {
+										if envElem := getMapByIndex(env, i); envElem != nil {
+											valueI := envElem["value"]
+											if valueI == nil {
 												delete(envElem, "value")
-											}
-										}
-									}
-								}
-							} // env
-
-							// Normalize resources quantity values
-							if resources := getMapByKey(container, "resources"); resources != nil {
-								for _, resourcesGroupName := range []string{"limits", "requests"} {
-									if settings := getMapByKey(resources, resourcesGroupName); settings != nil {
-										for _, resourceName := range []string{"cpu", "memory", "storage", "ephemeral-storage"} {
-											if rawQuantityI, hasKey := settings[resourceName]; hasKey {
-												rawQuantityStr := fmt.Sprintf("%v", rawQuantityI)
-												if q, err := resource_quantity.ParseQuantity(rawQuantityStr); err == nil {
-													settings[resourceName] = q.String()
+											} else {
+												valueStr := fmt.Sprintf("%v", valueI)
+												if valueStr == "" {
+													delete(envElem, "value")
 												}
 											}
 										}
 									}
-								}
-							} // resources
-						}
-					}
-				} // containers
+								} // env
 
-				if opts.FilterVolumesDownwardApi {
-					if volumes := getSliceByKey(spec, "volumes"); volumes != nil {
-						for i := range volumes {
-							if volume := getMapByIndex(volumes, i); volume != nil {
-								if downwardAPI := getMapByKey(volume, "downwardAPI"); downwardAPI != nil {
-									if items := getSliceByKey(downwardAPI, "items"); items != nil {
-										for i := range items {
-											if item := getMapByIndex(items, i); item != nil {
-												if fieldRef := getMapByKey(item, "fieldRef"); fieldRef != nil {
-													if _, hasKey := fieldRef["apiVersion"]; hasKey {
-														delete(fieldRef, "apiVersion")
-														RepairDebugMessages = append(RepairDebugMessages, fmt.Sprintf("deleted volumes[].downwardApi.items[].apiVersion for manifest"))
+								// Normalize resources quantity values
+								if resources := getMapByKey(container, "resources"); resources != nil {
+									for _, resourcesGroupName := range []string{"limits", "requests"} {
+										if settings := getMapByKey(resources, resourcesGroupName); settings != nil {
+											for _, resourceName := range []string{"cpu", "memory", "storage", "ephemeral-storage"} {
+												if rawQuantityI, hasKey := settings[resourceName]; hasKey {
+													rawQuantityStr := fmt.Sprintf("%v", rawQuantityI)
+													if q, err := resource_quantity.ParseQuantity(rawQuantityStr); err == nil {
+														settings[resourceName] = q.String()
+													}
+												}
+											}
+										}
+									}
+								} // resources
+							}
+						}
+					} // containers
+
+					if opts.FilterVolumesDownwardApi {
+						if volumes := getSliceByKey(spec, "volumes"); volumes != nil {
+							for i := range volumes {
+								if volume := getMapByIndex(volumes, i); volume != nil {
+									if downwardAPI := getMapByKey(volume, "downwardAPI"); downwardAPI != nil {
+										if items := getSliceByKey(downwardAPI, "items"); items != nil {
+											for i := range items {
+												if item := getMapByIndex(items, i); item != nil {
+													if fieldRef := getMapByKey(item, "fieldRef"); fieldRef != nil {
+														if _, hasKey := fieldRef["apiVersion"]; hasKey {
+															delete(fieldRef, "apiVersion")
+															RepairDebugMessages = append(RepairDebugMessages, fmt.Sprintf("deleted volumes[].downwardApi.items[].apiVersion for manifest"))
+														}
 													}
 												}
 											}
@@ -1542,15 +1611,15 @@ func filterManifestForRepairPatch(manifest []byte, isReplicasOnlyOnCreation, isR
 									}
 								}
 							}
-						}
-					} // volumes
+						} // volumes
+					}
 				}
 			}
-		}
 
-		// Remove "volumeClaimTemplates" because it is forbidden to change this field in a patch
-		if _, hasKey := spec["volumeClaimTemplates"]; hasKey {
-			delete(spec, "volumeClaimTemplates")
+			// Remove "volumeClaimTemplates" because it is forbidden to change this field in a patch
+			if _, hasKey := spec["volumeClaimTemplates"]; hasKey {
+				delete(spec, "volumeClaimTemplates")
+			}
 		}
 	}
 
@@ -1686,7 +1755,7 @@ func createThreeWayMergePatch(target *resource.Info, original, modified, current
 
 		patch, err = strategicpatch.CreateThreeWayMergePatch(original, modified, current, lookupPatchMeta, true)
 		if err != nil {
-			return nil, "", fmt.Errorf("failed to create two-way merge patch: %v", err)
+			return nil, "", fmt.Errorf("failed to create three-way merge patch: %v", err)
 		}
 	}
 
