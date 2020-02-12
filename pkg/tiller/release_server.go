@@ -522,6 +522,12 @@ func (s *ReleaseServer) deleteHookByPolicy(h *release.Hook, policy string, name,
 // hookHasDeletePolicy determines whether the defined hook deletion policy matches the hook deletion polices
 // supported by helm. If so, mark the hook as one should be deleted.
 func hookHasDeletePolicy(h *release.Hook, policy string) bool {
+	if h.DeletePolicies == nil || len(h.DeletePolicies) == 0 {
+		if policy == hooks.BeforeHookCreation {
+			return true
+		}
+	}
+
 	if dp, ok := deletePolices[policy]; ok {
 		for _, v := range h.DeletePolicies {
 			if dp == v {
