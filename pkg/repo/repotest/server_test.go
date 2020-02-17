@@ -78,7 +78,7 @@ func TestServer(t *testing.T) {
 	}
 
 	m := repo.NewIndexFile()
-	if err := yaml.Unmarshal(data, m); err != nil {
+	if err := yaml.UnmarshalStrict(data, m); err != nil {
 		t.Error(err)
 		return
 	}

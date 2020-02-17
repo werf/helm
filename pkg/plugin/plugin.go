@@ -124,7 +124,7 @@ func LoadDir(dirname string) (*Plugin, error) {
 	if err := validateMeta(data); err != nil {
 		return nil, err
 	}
-	if err := yaml.Unmarshal(data, &plug.Metadata); err != nil {
+	if err := yaml.UnmarshalStrict(data, &plug.Metadata); err != nil {
 		return nil, err
 	}
 	return plug, nil

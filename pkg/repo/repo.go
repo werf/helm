@@ -67,7 +67,7 @@ func LoadRepositoriesFile(path string) (*RepoFile, error) {
 	}
 
 	r := &RepoFile{}
-	err = yaml.Unmarshal(b, r)
+	err = yaml.UnmarshalStrict(b, r)
 	if err != nil {
 		return nil, err
 	}
@@ -75,7 +75,7 @@ func LoadRepositoriesFile(path string) (*RepoFile, error) {
 	// File is either corrupt, or is from before v2.0.0-Alpha.5
 	if r.APIVersion == "" {
 		m := map[string]string{}
-		if err = yaml.Unmarshal(b, &m); err != nil {
+		if err = yaml.UnmarshalStrict(b, &m); err != nil {
 			return nil, err
 		}
 		r := NewRepoFile()
