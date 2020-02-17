@@ -34,7 +34,7 @@ require (
 	github.com/exponent-io/jsonpath v0.0.0-20151013193312-d6023ce2651d
 	github.com/fatih/camelcase v1.0.0
 	github.com/flant/logboek v0.2.6-0.20190918091020-d00ba619a349
-	github.com/ghodss/yaml v0.0.0-20180820084758-c7ce16629ff4
+	github.com/ghodss/yaml v1.0.1-0.20190212211648-25d852aebe32
 	github.com/go-openapi/jsonpointer v0.19.3
 	github.com/go-openapi/jsonreference v0.19.2
 	github.com/go-openapi/spec v0.19.2
@@ -100,6 +100,7 @@ require (
 	gopkg.in/inf.v0 v0.9.1
 	gopkg.in/square/go-jose.v2 v2.2.2
 	gopkg.in/yaml.v2 v2.2.8
+	gopkg.in/yaml.v3 v3.0.0-20200121175148-a6ecf24a6d71 // indirect
 	k8s.io/api v0.16.7
 	k8s.io/apiextensions-apiserver v0.0.0
 	k8s.io/apimachinery v0.16.7

@@ -19,12 +19,13 @@ package releasetesting
 import (
 	"context"
 	"fmt"
-	"golang.org/x/sync/semaphore"
 	"strings"
+
+	"golang.org/x/sync/semaphore"
 
 	"github.com/ghodss/yaml"
 	"github.com/golang/protobuf/ptypes/timestamp"
-	"k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 
 	"k8s.io/helm/pkg/hooks"
 	"k8s.io/helm/pkg/proto/hapi/release"
@@ -207,7 +208,7 @@ func extractTestManifestsFromHooks(h []*release.Hook) ([]string, error) {
 
 func newTest(testManifest string) (*test, error) {
 	var sh util.SimpleHead
-	err := yaml.Unmarshal([]byte(testManifest), &sh)
+	err := yaml.UnmarshalStrict([]byte(testManifest), &sh)
 	if err != nil {
 		return nil, err
 	}

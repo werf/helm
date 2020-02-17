@@ -131,7 +131,7 @@ func sortManifests(files map[string]string, apis chartutil.VersionSet, sort Sort
 func (file *manifestFile) sort(result *result) error {
 	for _, m := range file.entries {
 		var entry util.SimpleHead
-		err := yaml.Unmarshal([]byte(m), &entry)
+		err := yaml.UnmarshalStrict([]byte(m), &entry)
 
 		if err != nil {
 			e := fmt.Errorf("YAML parse error on %s: %s", file.path, err)

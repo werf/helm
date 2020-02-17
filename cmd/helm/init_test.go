@@ -173,7 +173,7 @@ func TestInitCmd_dryRun(t *testing.T) {
 	}
 	for _, doc := range docs {
 		var y map[string]interface{}
-		if err := yaml.Unmarshal(doc, &y); err != nil {
+		if err := yaml.UnmarshalStrict(doc, &y); err != nil {
 			t.Errorf("Expected parseable YAML, got %q\n\t%s", doc, err)
 		}
 	}
