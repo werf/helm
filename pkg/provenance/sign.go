@@ -356,10 +356,10 @@ func parseMessageBlock(data []byte) (*hapi.Metadata, *SumCollection, error) {
 	md := &hapi.Metadata{}
 	sc := &SumCollection{}
 
-	if err := yaml.Unmarshal(parts[0], md); err != nil {
+	if err := yaml.UnmarshalStrict(parts[0], md); err != nil {
 		return md, sc, err
 	}
-	err := yaml.Unmarshal(parts[1], sc)
+	err := yaml.UnmarshalStrict(parts[1], sc)
 	return md, sc, err
 }
 

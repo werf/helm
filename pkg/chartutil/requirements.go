@@ -105,7 +105,7 @@ func LoadRequirements(c *chart.Chart) (*Requirements, error) {
 		return nil, ErrRequirementsNotFound
 	}
 	r := &Requirements{}
-	return r, yaml.Unmarshal(data, r)
+	return r, yaml.UnmarshalStrict(data, r)
 }
 
 // LoadRequirementsLock loads a requirements lock file.
@@ -120,7 +120,7 @@ func LoadRequirementsLock(c *chart.Chart) (*RequirementsLock, error) {
 		return nil, ErrLockfileNotFound
 	}
 	r := &RequirementsLock{}
-	return r, yaml.Unmarshal(data, r)
+	return r, yaml.UnmarshalStrict(data, r)
 }
 
 // ProcessRequirementsConditions disables charts based on condition path value in values

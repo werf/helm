@@ -185,7 +185,7 @@ func ToYaml(v interface{}) string {
 func FromYaml(str string) map[string]interface{} {
 	m := map[string]interface{}{}
 
-	if err := yaml.Unmarshal([]byte(str), &m); err != nil {
+	if err := yaml.UnmarshalStrict([]byte(str), &m); err != nil {
 		m["Error"] = err.Error()
 	}
 	return m
