@@ -24,7 +24,7 @@ import (
 	"github.com/Masterminds/semver"
 	"github.com/ghodss/yaml"
 	appsv1 "k8s.io/api/apps/v1"
-	"k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 	extensionsv1beta1 "k8s.io/api/extensions/v1beta1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -378,7 +378,7 @@ func generateDeployment(opts *Options) (*appsv1.Deployment, error) {
 			return nil, fmt.Errorf("Error marshalling merged map to YAML: %s ", err)
 		}
 		// convert merged values back into deployment
-		err = yaml.Unmarshal(finalY, &dd)
+		err = yaml.UnmarshalStrict(finalY, &dd)
 		if err != nil {
 			return nil, fmt.Errorf("Error unmarshalling Values to Deployment manifest: %s ", err)
 		}

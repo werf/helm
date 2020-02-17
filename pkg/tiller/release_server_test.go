@@ -607,7 +607,7 @@ func (kc *mockHooksKubeClient) makeManifest(r io.Reader) (*mockHooksManifest, er
 	}
 
 	manifest := &mockHooksManifest{}
-	err = yaml.Unmarshal(b, manifest)
+	err = yaml.UnmarshalStrict(b, manifest)
 	if err != nil {
 		return nil, err
 	}

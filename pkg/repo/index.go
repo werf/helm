@@ -283,7 +283,7 @@ func IndexDirectory(dir, baseURL string) (*IndexFile, error) {
 // This will fail if API Version is not set (ErrNoAPIVersion) or if the unmarshal fails.
 func loadIndex(data []byte) (*IndexFile, error) {
 	i := &IndexFile{}
-	if err := yaml.Unmarshal(data, i); err != nil {
+	if err := yaml.UnmarshalStrict(data, i); err != nil {
 		return i, err
 	}
 	i.SortEntries()
