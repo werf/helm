@@ -33,7 +33,7 @@ require (
 	github.com/evanphx/json-patch v4.2.0+incompatible
 	github.com/exponent-io/jsonpath v0.0.0-20151013193312-d6023ce2651d
 	github.com/fatih/camelcase v1.0.0
-	github.com/flant/logboek v0.2.6-0.20190918091020-d00ba619a349
+	github.com/flant/logboek v0.3.1
 	github.com/ghodss/yaml v1.0.1-0.20190212211648-25d852aebe32
 	github.com/go-openapi/jsonpointer v0.19.3
 	github.com/go-openapi/jsonreference v0.19.2
@@ -90,7 +90,7 @@ require (
 	golang.org/x/net v0.0.0-20191004110552-13f9640d40b9
 	golang.org/x/oauth2 v0.0.0-20190604053449-0f29369cfe45
 	golang.org/x/sync v0.0.0-20190911185100-cd5d95a43a6e
-	golang.org/x/sys v0.0.0-20190813064441-fde4db37ae7a
+	golang.org/x/sys v0.0.0-20191026070338-33540a1f6037
 	golang.org/x/text v0.3.2
 	golang.org/x/time v0.0.0-20190308202827-9d24e82272b4
 	google.golang.org/appengine v1.5.0
@@ -165,5 +165,7 @@ replace k8s.io/sample-apiserver => k8s.io/sample-apiserver v0.16.7
 replace k8s.io/sample-cli-plugin => k8s.io/sample-cli-plugin v0.16.7
 
 replace k8s.io/sample-controller => k8s.io/sample-controller v0.16.7
+
+replace golang.org/x/sys => golang.org/x/sys v0.0.0-20190813064441-fde4db37ae7a
 
 go 1.13
