@@ -524,30 +524,53 @@ func (c *Client) UpdateWithOptions(namespace string, originalReader, targetReade
 		//
 		// See https://github.com/helm/helm/issues/1193 for more info.
 		if originalInfo == nil {
-			adoptObjectAllowed := false
-			allowedAdoptionByRelease := getObjectAnnotation(currentObj, allowAdoptionByReleaseAnnotation)
-			if allowedAdoptionByRelease == opts.ReleaseInfo.ReleaseName {
-				adoptObjectAllowed = true
+			ownerReleaseName := getObjectAnnotation(currentObj, ownerReleaseAnnotation)
+			if ownerReleaseName != "" {
+				if ownerReleaseName != opts.ReleaseInfo.ReleaseName {
+					return fmt.Errorf("inconsistent state detected! Resource %s/%s owner release %q: %q does not match current release %q", target.Mapping.GroupVersionKind.Kind, target.Name, ownerReleaseAnnotation, ownerReleaseName, opts.ReleaseInfo.ReleaseName)
+				}
+
+				// The case when a new resource has been added to the chart and the chart was not yet released successfully
+
+				validateAndSetWarnings(c, target.Object)
+
+				if !opts.UseThreeWayMerge {
+					return fmt.Errorf("inconsistent state detected! Resource %s/%s could not be updated due to disabled three-way-merge-mode. Please either:\n - set --three-way-merge-mode=enabled;\n - delete resource from the cluster;\n - delete resource from the chart;")
+				}
+
+				if opts.UseThreeWayMerge {
+					if err := updateResource(c, target, currentObj, target.Object, opts.Force, opts.Recreate, opts.UseThreeWayMerge, opts.ReleaseInfo); err != nil {
+						c.Log("error updating the resource %q:\n\t %v", target.Name, err)
+						updateErrors = append(updateErrors, err.Error())
+					}
+				}
+
+			} else {
+				adoptObjectAllowed := false
+				allowedAdoptionByRelease := getObjectAnnotation(currentObj, allowAdoptionByReleaseAnnotation)
+				if allowedAdoptionByRelease == opts.ReleaseInfo.ReleaseName {
+					adoptObjectAllowed = true
+				}
+
+				if !adoptObjectAllowed {
+					return fmt.Errorf(
+						"%s/%s already exists in the cluster and wasn't defined in the previous release. Before updating release, please either:\n - delete resource from the cluster;\n - delete resource from the chart;\n - set %s: %s annotation to the resource, which will cause werf to adopt existing resource into the release.",
+						target.Mapping.GroupVersionKind.Kind,
+						target.Name,
+						allowAdoptionByReleaseAnnotation,
+						opts.ReleaseInfo.ReleaseName,
+					)
+				}
+
+				validateAndSetWarnings(c, target.Object)
+
+				if err := adoptResource(c, target, currentObj, opts.ReleaseInfo); err != nil {
+					c.Log("error adopting resource %s/%s:\n\t %v", target.Mapping.GroupVersionKind.Kind, target.Name, err)
+					adoptErrors = append(adoptErrors, err.Error())
+				}
+
+				logboek.LogHighlightF("NOTICE Resource %s/%s has been adopted using 3-way-merge patch into the release %q\n", target.Mapping.GroupVersionKind.Kind, target.Name, opts.ReleaseInfo.ReleaseName)
 			}
-
-			if !adoptObjectAllowed {
-				return fmt.Errorf(
-					"%s/%s already exists in the cluster and wasn't defined in the previous release. Before updating release, please either:\n - delete resource from the cluster;\n - delete resource from the chart;\n - set %s: %s annotation to the resource, which will cause werf to adopt existing resource into the release.",
-					target.Mapping.GroupVersionKind.Kind,
-					target.Name,
-					allowAdoptionByReleaseAnnotation,
-					opts.ReleaseInfo.ReleaseName,
-				)
-			}
-
-			validateAndSetWarnings(c, target.Object)
-
-			if err := adoptResource(c, target, currentObj, opts.ReleaseInfo); err != nil {
-				c.Log("error adopting resource %s/%s:\n\t %v", target.Mapping.GroupVersionKind.Kind, target.Name, err)
-				adoptErrors = append(adoptErrors, err.Error())
-			}
-
-			logboek.LogHighlightF("NOTICE Resource %s/%s has been adopted using 3-way-merge patch into the release %q\n", target.Mapping.GroupVersionKind.Kind, target.Name, opts.ReleaseInfo.ReleaseName)
 		} else {
 			if opts.SetOwnerReleaseToOldResources {
 				if err := setObjectAnnotation(target.Object, ownerReleaseAnnotation, opts.ReleaseInfo.ReleaseName); err != nil {
@@ -556,7 +579,7 @@ func (c *Client) UpdateWithOptions(namespace string, originalReader, targetReade
 			} else {
 				ownerReleaseName := getObjectAnnotation(currentObj, ownerReleaseAnnotation)
 				if ownerReleaseName != opts.ReleaseInfo.ReleaseName {
-					return fmt.Errorf("inconsistent state detected! Resource %s/%s owner release %q: %q does not match current release %q", target.Mapping.GroupVersionKind.Kind, target.Name, ownerReleaseAnnotation, ownerReleaseName, opts.ReleaseInfo.ReleaseName)
+					return fmt.Errorf("inconsistent state detected! Resource %s/%s owner release %q: %q does not match current release %q and current release do have a record for this resource", target.Mapping.GroupVersionKind.Kind, target.Name, ownerReleaseAnnotation, ownerReleaseName, opts.ReleaseInfo.ReleaseName)
 				}
 			}
 
