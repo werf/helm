@@ -30,6 +30,8 @@ import (
 	"sync"
 	"time"
 
+	"k8s.io/helm/pkg/hooks"
+
 	"github.com/flant/logboek"
 
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -200,6 +202,10 @@ func (c *Client) CreateWithOptions(namespace string, reader io.Reader, opts Crea
 		}
 
 		// resource found
+
+		if hookAnno := getObjectAnnotation(currentObj, hooks.HookAnno); hookAnno != "" {
+			return fmt.Errorf("%s/%s hook already exists in the cluster, please set appropriate helm.sh/hook-delete-policy", info.Mapping.GroupVersionKind.Kind, info.Name)
+		}
 
 		adoptObjectAllowed := false
 		allowedAdoptionByRelease := getObjectAnnotation(currentObj, allowAdoptionByReleaseAnnotation)
