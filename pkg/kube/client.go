@@ -211,31 +211,41 @@ func (c *Client) CreateWithOptions(namespace string, reader io.Reader, opts Crea
 			return fmt.Errorf("%s/%s hook already exists in the cluster, please set appropriate helm.sh/hook-delete-policy", info.Mapping.GroupVersionKind.Kind, info.Name)
 		}
 
-		adoptObjectAllowed := false
-		allowedAdoptionByRelease := getObjectAnnotation(currentObj, allowAdoptionByReleaseAnnotation)
-		if allowedAdoptionByRelease == opts.ReleaseInfo.ReleaseName {
-			adoptObjectAllowed = true
-		}
+		/*
+			// FIXME: Cannot adopt during release installation, because werf will possibly delete this release during redeploy in the case of installation failure
 
-		if !adoptObjectAllowed {
-			return fmt.Errorf(
-				"%s/%s already exists in the cluster. Before installing release, please either:\n - delete resource from the cluster;\n - delete resource from the chart;\n - set %s: %s annotation to the resource, which will cause werf to adopt existing resource into the release.",
-				info.Mapping.GroupVersionKind.Kind,
-				info.Name,
-				allowAdoptionByReleaseAnnotation,
-				opts.ReleaseInfo.ReleaseName,
-			)
-		}
+			adoptObjectAllowed := false
+			allowedAdoptionByRelease := getObjectAnnotation(currentObj, allowAdoptionByReleaseAnnotation)
+			if allowedAdoptionByRelease == opts.ReleaseInfo.ReleaseName {
+				adoptObjectAllowed = true
+			}
 
-		validateAndSetWarnings(c, info.Object)
+			if !adoptObjectAllowed {
+				return fmt.Errorf(
+					"%s/%s already exists in the cluster. Before installing release, please either:\n - delete resource from the cluster;\n - delete resource from the chart;\n - set %s: %s annotation to the resource, which will cause werf to adopt existing resource into the release.",
+					info.Mapping.GroupVersionKind.Kind,
+					info.Name,
+					allowAdoptionByReleaseAnnotation,
+					opts.ReleaseInfo.ReleaseName,
+				)
+			}
 
-		if err := adoptResource(c, info, currentObj, opts.ReleaseInfo); err != nil {
-			return fmt.Errorf("unable to adopt resource %s/%s: %s", info.Mapping.GroupVersionKind.Kind, info.Name, err)
-		}
+			validateAndSetWarnings(c, info.Object)
 
-		logboek.LogHighlightF("NOTICE Resource %s/%s has been adopted using 3-way-merge patch into the release %q\n", info.Mapping.GroupVersionKind.Kind, info.Name, opts.ReleaseInfo.ReleaseName)
+			if err := adoptResource(c, info, currentObj, opts.ReleaseInfo); err != nil {
+				return fmt.Errorf("unable to adopt resource %s/%s: %s", info.Mapping.GroupVersionKind.Kind, info.Name, err)
+			}
 
-		return nil
+			logboek.LogHighlightF("NOTICE Resource %s/%s has been adopted using 3-way-merge patch into the release %q\n", info.Mapping.GroupVersionKind.Kind, info.Name, opts.ReleaseInfo.ReleaseName)
+		*/
+
+		return fmt.Errorf("%s/%s already exists in the cluster. Please either:\n - delete resource from the cluster;\n - delete resource from the chart;\n - adopt existing resource into release.\n\n*NOTE* Release should be successfully installed first without this resource. Then resource can be adopted into release by setting '%s: %s' annotation (via kubectl edit) and upgrading the release.",
+			info.Mapping.GroupVersionKind.Kind,
+			info.Name,
+			allowAdoptionByReleaseAnnotation,
+			opts.ReleaseInfo.ReleaseName,
+		)
+
 	}); err != nil {
 		return err
 	}
@@ -687,7 +697,7 @@ func (c *Client) UpdateWithOptions(namespace string, originalReader, targetReade
 
 				if !adoptObjectAllowed {
 					return fmt.Errorf(
-						"%s/%s already exists in the cluster and wasn't defined in the previous release. Before updating release, please either:\n - delete resource from the cluster;\n - delete resource from the chart;\n - set %s: %s annotation to the resource, which will cause werf to adopt existing resource into the release.",
+						"%s/%s already exists in the cluster and wasn't defined in the previous release. Before updating release, please either:\n - delete resource from the cluster;\n - delete resource from the chart;\n - set '%s: %s' annotation to the resource (via kubectl edit), which will cause werf to adopt existing resource into the release during next release upgrade.",
 						target.Mapping.GroupVersionKind.Kind,
 						target.Name,
 						allowAdoptionByReleaseAnnotation,
