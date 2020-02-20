@@ -232,7 +232,9 @@ func (c *Client) CreateWithOptions(namespace string, reader io.Reader, opts Crea
 				return fmt.Errorf("unable to adopt resource %s/%s: %s", info.Mapping.GroupVersionKind.Kind, info.Name, err)
 			}
 
-			logboek.LogHighlightF("NOTICE Resource %s/%s has been adopted using 3-way-merge patch into the release %q\n", info.Mapping.GroupVersionKind.Kind, info.Name, opts.ReleaseInfo.ReleaseName)
+			logboek.Default.LogFHighlight(
+				"NOTICE Resource %s/%s has been adopted using 3-way-merge patch into the release %q\n",
+				info.Mapping.GroupVersionKind.Kind, info.Name, opts.ReleaseInfo.ReleaseName,
 		*/
 
 		return fmt.Errorf("%s/%s already exists in the cluster. Please either:\n - delete resource from the cluster;\n - delete resource from the chart;\n - adopt existing resource into release.\n\n*NOTE* Release should be successfully installed first without this resource. Then resource can be adopted into release by setting '%s: %s' annotation (via kubectl edit) and upgrading the release.",
@@ -327,7 +329,7 @@ func resourceInfoToObject(info *resource.Info, c *Client) runtime.Object {
 	return internalObj
 }
 
-func sortByKey(objs map[string](map[string]runtime.Object)) []string {
+func sortByKey(objs map[string]map[string]runtime.Object) []string {
 	var keys []string
 	// Create a simple slice, so we can sort it
 	for key := range objs {
@@ -344,7 +346,7 @@ func sortByKey(objs map[string](map[string]runtime.Object)) []string {
 func (c *Client) Get(namespace string, reader io.Reader) (string, error) {
 	// Since we don't know what order the objects come in, let's group them by the types and then sort them, so
 	// that when we print them, they come out looking good (headers apply to subgroups, etc.).
-	objs := make(map[string](map[string]runtime.Object))
+	objs := make(map[string]map[string]runtime.Object)
 	mux := &sync.Mutex{}
 
 	infos, err := c.BuildUnstructured(namespace, reader)
@@ -585,7 +587,10 @@ func (c *Client) UpdateWithOptions(namespace string, originalReader, targetReade
 					adoptErrors = append(adoptErrors, err.Error())
 				}
 
-				logboek.LogHighlightF("NOTICE Resource %s/%s has been adopted using 3-way-merge patch into the release %q\n", target.Mapping.GroupVersionKind.Kind, target.Name, opts.ReleaseInfo.ReleaseName)
+				logboek.Default.LogFHighlight(
+					"NOTICE Resource %s/%s has been adopted using 3-way-merge patch into the release %q\n",
+					target.Mapping.GroupVersionKind.Kind, target.Name, opts.ReleaseInfo.ReleaseName,
+				)
 			}
 		} else {
 			if opts.SetOwnerReleaseToOldResources {
@@ -881,7 +886,10 @@ func setObjectAnnotation(obj runtime.Object, annoName, annoValue string) error {
 	}
 
 	if debugUpdateResource() {
-		logboek.LogInfoF("Set annotation %s=%s for %s named %q\n", annoName, annoValue, kind, name)
+		logboek.Default.LogFDetails(
+			"Set annotation %s=%s for %s named %q\n",
+			annoName, annoValue, kind, name,
+		)
 	}
 
 	return metadataAccessor.SetAnnotations(obj, annots)
@@ -890,7 +898,7 @@ func setObjectAnnotation(obj runtime.Object, annoName, annoValue string) error {
 func getObjectAnnotation(obj runtime.Object, annoName string) string {
 	annots, err := metadataAccessor.Annotations(obj)
 	if err != nil {
-		logboek.LogErrorF("Unable to fetch annotations of kube object: %s\n", err)
+		logboek.LogWarnF("Unable to fetch annotations of kube object: %s\n", err)
 		return ""
 	}
 	return annots[annoName]
@@ -899,7 +907,7 @@ func getObjectAnnotation(obj runtime.Object, annoName string) string {
 func deleteObjectAnnotaion(obj runtime.Object, annoName string) {
 	annots, err := metadataAccessor.Annotations(obj)
 	if err != nil {
-		logboek.LogErrorF("Unable to fetch annotations of kube object: %s\n", err)
+		logboek.LogWarnF("Unable to fetch annotations of kube object: %s\n", err)
 		return
 	}
 	delete(annots, annoName)
@@ -944,14 +952,23 @@ func deleteResource(info *resource.Info, releaseInfo ReleaseInfo, allowDeletionO
 		ownerRelease := getObjectAnnotation(currentObj, ownerReleaseAnnotation)
 		if ownerRelease != releaseInfo.ReleaseName {
 			deleteAllowed = false
-			logboek.LogHighlightF("NOTICE Will not delete %s/%s: resource does not belong to the helm release %q\n", info.Mapping.GroupVersionKind.Kind, info.Name, releaseInfo.ReleaseName)
+
+			logboek.Default.LogFHighlight(
+				"NOTICE Will not delete %s/%s: resource does not belong to the helm release %q\n",
+				info.Mapping.GroupVersionKind.Kind, info.Name, releaseInfo.ReleaseName,
+			)
 		}
 	}
 
 	if deleteAllowed {
 		policy := metav1.DeletePropagationBackground
 		opts := &metav1.DeleteOptions{PropagationPolicy: &policy}
-		logboek.LogInfoF("Deleting resource %s/%s from release %q\n", info.Mapping.GroupVersionKind.Kind, info.Name, releaseInfo.ReleaseName)
+
+		logboek.Default.LogFDetails(
+			"Deleting resource %s/%s from release %q\n",
+			info.Mapping.GroupVersionKind.Kind, info.Name, releaseInfo.ReleaseName,
+		)
+
 		_, err := resource.NewHelper(info.Client, info.Mapping).DeleteWithOptions(info.Namespace, info.Name, opts)
 		return err
 	}
