@@ -38,6 +38,29 @@ import (
 	"k8s.io/helm/pkg/sympath"
 )
 
+var skipChartYamlFileValidation bool
+var skipSubChartYamlFileValidation bool
+
+func WithSkipChartYamlFileValidation(value bool, f func() error) error {
+	oldSkipChartYamlFileValidation := skipChartYamlFileValidation
+
+	skipChartYamlFileValidation = value
+	err := f()
+	skipChartYamlFileValidation = oldSkipChartYamlFileValidation
+
+	return err
+}
+
+func WithSkipSubChartYamlFileValidation(value bool, f func() error) error {
+	oldSkipSubChartYamlFileValidation := skipSubChartYamlFileValidation
+
+	skipSubChartYamlFileValidation = value
+	err := f()
+	skipSubChartYamlFileValidation = oldSkipSubChartYamlFileValidation
+
+	return err
+}
+
 // Load takes a string name, tries to resolve it to a file or directory, and then loads it.
 //
 // This is the preferred way to load a chart. It will discover the chart encoding
@@ -52,9 +75,12 @@ func Load(name string) (*chart.Chart, error) {
 		return nil, err
 	}
 	if fi.IsDir() {
-		if validChart, err := IsChartDir(name); !validChart {
-			return nil, err
+		if !skipChartYamlFileValidation {
+			if validChart, err := IsChartDir(name); !validChart {
+				return nil, err
+			}
 		}
+
 		return LoadDir(name)
 	}
 	return LoadFile(name)
@@ -200,47 +226,55 @@ func LoadFiles(files []*BufferedFile) (*chart.Chart, error) {
 		}
 	}
 
-	// Ensure that we got a Chart.yaml file
-	if c.Metadata == nil {
-		return c, errors.New("chart metadata (Chart.yaml) missing")
-	}
-	if c.Metadata.Name == "" {
-		return c, errors.New("invalid chart (Chart.yaml): name must not be empty")
+	if !skipChartYamlFileValidation {
+		// Ensure that we got a Chart.yaml file
+		if c.Metadata == nil {
+			return c, errors.New("chart metadata (Chart.yaml) missing")
+		}
+		if c.Metadata.Name == "" {
+			return c, errors.New("invalid chart (Chart.yaml): name must not be empty")
+		}
 	}
 
-	for n, files := range subcharts {
-		var sc *chart.Chart
-		var err error
-		if strings.IndexAny(n, "_.") == 0 {
-			continue
-		} else if filepath.Ext(n) == ".tgz" {
-			file := files[0]
-			if file.Name != n {
-				return c, fmt.Errorf("error unpacking tar in %s: expected %s, got %s", c.Metadata.Name, n, file.Name)
-			}
-			// Untar the chart and add to c.Dependencies
-			b := bytes.NewBuffer(file.Data)
-			sc, err = LoadArchive(b)
-		} else {
-			// We have to trim the prefix off of every file, and ignore any file
-			// that is in charts/, but isn't actually a chart.
-			buff := make([]*BufferedFile, 0, len(files))
-			for _, f := range files {
-				parts := strings.SplitN(f.Name, "/", 2)
-				if len(parts) < 2 {
-					continue
+	if err := WithSkipChartYamlFileValidation(skipSubChartYamlFileValidation, func() error {
+		for n, files := range subcharts {
+			var sc *chart.Chart
+			var err error
+			if strings.IndexAny(n, "_.") == 0 {
+				continue
+			} else if filepath.Ext(n) == ".tgz" {
+				file := files[0]
+				if file.Name != n {
+					return fmt.Errorf("error unpacking tar in %s: expected %s, got %s", c.Metadata.Name, n, file.Name)
 				}
-				f.Name = parts[1]
-				buff = append(buff, f)
+				// Untar the chart and add to c.Dependencies
+				b := bytes.NewBuffer(file.Data)
+				sc, err = LoadArchive(b)
+			} else {
+				// We have to trim the prefix off of every file, and ignore any file
+				// that is in charts/, but isn't actually a chart.
+				buff := make([]*BufferedFile, 0, len(files))
+				for _, f := range files {
+					parts := strings.SplitN(f.Name, "/", 2)
+					if len(parts) < 2 {
+						continue
+					}
+					f.Name = parts[1]
+					buff = append(buff, f)
+				}
+				sc, err = LoadFiles(buff)
 			}
-			sc, err = LoadFiles(buff)
+
+			if err != nil {
+				return fmt.Errorf("error unpacking %s in %s: %s", n, c.Metadata.Name, err)
+			}
+
+			c.Dependencies = append(c.Dependencies, sc)
 		}
 
-		if err != nil {
-			return c, fmt.Errorf("error unpacking %s in %s: %s", n, c.Metadata.Name, err)
-		}
-
-		c.Dependencies = append(c.Dependencies, sc)
+		return nil
+	}); err != nil {
+		return c, err
 	}
 
 	return c, nil

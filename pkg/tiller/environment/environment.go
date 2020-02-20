@@ -104,11 +104,14 @@ type Engine interface {
 //
 // A KubeClient must be concurrency safe.
 type KubeClient interface {
-	// Create creates one or more resources.
+	// Deprecated: use CreateWithOptions instead
+	Create(namespace string, reader io.Reader, timeout int64, shouldWait bool) error
+
+	// CreateWithOptions creates one or more resources.
 	//
 	// reader must contain a YAML stream (one or more YAML documents separated
 	// by "\n---\n").
-	Create(namespace string, reader io.Reader, timeout int64, shouldWait bool) error
+	CreateWithOptions(namespace string, reader io.Reader, opts kube.CreateOptions) error
 
 	// Get gets one or more resources. Returned string hsa the format like kubectl
 	// provides with the column headers separating the resource types.
@@ -119,23 +122,21 @@ type KubeClient interface {
 	// by "\n---\n").
 	Get(namespace string, reader io.Reader) (string, error)
 
-	// Delete destroys one or more resources.
-	//
-	// namespace must contain a valid existing namespace.
-	//
-	// reader must contain a YAML stream (one or more YAML documents separated
-	// by "\n---\n").
+	// Deprecated: use DeleteWithOptions instead
 	Delete(namespace string, reader io.Reader) error
 
-	// DeleteWithTimeout destroys one or more resources. If shouldWait is true, the function
+	// Deprecated: use DeleteWithOptions instead
+	DeleteWithTimeout(namespace string, reader io.Reader, timeout int64, shouldWait bool) error
+
+	// DeleteWithOptions destroys one or more resources. If ShouldWait is true, the function
 	// will not return until all the resources have been fully deleted or the provided
-	// timeout has expired.
+	// Timeout has expired.
 	//
 	// namespace must contain a valid existing namespace.
 	//
 	// reader must contain a YAML stream (one or more YAML documents separated
 	// by "\n---\n").
-	DeleteWithTimeout(namespace string, reader io.Reader, timeout int64, shouldWait bool) error
+	DeleteWithOptions(namespace string, reader io.Reader, opts kube.DeleteOptions) error
 
 	// WatchUntilReady watch the resource in reader until it is "ready".
 	//
