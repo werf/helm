@@ -25,7 +25,6 @@ import (
 	"io"
 	"io/ioutil"
 	"log"
-	"os"
 	"sort"
 	"strings"
 	"sync"
@@ -1032,12 +1031,10 @@ func setObjectAnnotation(obj runtime.Object, annoName, annoValue string) error {
 		return err
 	}
 
-	if debugUpdateResource() {
-		logboek.Default.LogFDetails(
-			"Set annotation %s=%s for %s named %q\n",
-			annoName, annoValue, kind, name,
-		)
-	}
+	logboek.Debug.LogFDetails(
+		"Set annotation %s=%s for %s named %q\n",
+		annoName, annoValue, kind, name,
+	)
 
 	return metadataAccessor.SetAnnotations(obj, annots)
 }
@@ -1112,8 +1109,8 @@ func deleteResource(info *resource.Info, releaseInfo ReleaseInfo, allowDeletionO
 		opts := &metav1.DeleteOptions{PropagationPolicy: &policy}
 
 		logboek.Default.LogFDetails(
-			"Deleting resource %s/%s from release %q\n",
-			info.Mapping.GroupVersionKind.Kind, info.Name, releaseInfo.ReleaseName,
+			"Deleting %s/%s of release %q from namespace %q\n",
+			info.Mapping.GroupVersionKind.Kind, info.Name, releaseInfo.ReleaseName, info.Namespace,
 		)
 
 		_, err := resource.NewHelper(info.Client, info.Mapping).DeleteWithOptions(info.Namespace, info.Name, opts)
@@ -1250,10 +1247,6 @@ func createPatch(target *resource.Info, current runtime.Object) ([]byte, types.P
 	}
 }
 
-func debugUpdateResource() bool {
-	return os.Getenv("WERF_DEBUG_UPDATE_RESOURCE") == "1"
-}
-
 func createFinalThreeWayMergePatch(c *Client, target *resource.Info, currentObj, originalObj runtime.Object) ([]byte, types.PatchType, error) {
 	setObjectAnnotation(originalObj, repairPatchAnnotation, getObjectAnnotation(currentObj, repairPatchAnnotation))
 	setObjectAnnotation(originalObj, repairPatchErrorsAnnotation, getObjectAnnotation(currentObj, repairPatchErrorsAnnotation))
@@ -1277,10 +1270,8 @@ func createFinalThreeWayMergePatch(c *Client, target *resource.Info, currentObj,
 	if err != nil {
 		return nil, "", fmt.Errorf("unable to filter current manifest: %s", err)
 	}
-	if debugUpdateResource() {
-		fmt.Printf("-- currentData:\n%s\n", currentData)
-		fmt.Printf("-- filteredCurrentData:\n%s\n", filteredCurrentData)
-	}
+	logboek.Debug.LogF("-- currentData:\n%s\n", currentData)
+	logboek.Debug.LogF("-- filteredCurrentData:\n%s\n", filteredCurrentData)
 
 	targetData, err := json.Marshal(target.Object)
 	if err != nil {
@@ -1290,10 +1281,8 @@ func createFinalThreeWayMergePatch(c *Client, target *resource.Info, currentObj,
 	if err != nil {
 		return nil, "", fmt.Errorf("unable to filter target manifest: %s", err)
 	}
-	if debugUpdateResource() {
-		fmt.Printf("-- targetData:\n%s\n", targetData)
-		fmt.Printf("-- filteredTargetData:\n%s\n", filteredTargetData)
-	}
+	logboek.Debug.LogF("-- targetData:\n%s\n", targetData)
+	logboek.Debug.LogF("-- filteredTargetData:\n%s\n", filteredTargetData)
 
 	originalData, err := json.Marshal(originalObj)
 	if err != nil {
@@ -1303,19 +1292,15 @@ func createFinalThreeWayMergePatch(c *Client, target *resource.Info, currentObj,
 	if err != nil {
 		return nil, "", fmt.Errorf("unable to filter original manifest: %s", err)
 	}
-	if debugUpdateResource() {
-		fmt.Printf("-- originalData:\n%s\n", originalData)
-		fmt.Printf("-- filteredOriginalData:\n%s\n", filteredOriginalData)
-	}
+	logboek.Debug.LogF("-- originalData:\n%s\n", originalData)
+	logboek.Debug.LogF("-- filteredOriginalData:\n%s\n", filteredOriginalData)
 
 	finalPatch, finalPatchType, err := createThreeWayMergePatch(target, filteredOriginalData, filteredTargetData, filteredCurrentData)
 	if err != nil {
 		return nil, "", fmt.Errorf("unable to create three-way-merge patch: %s", err)
 	}
-	if debugUpdateResource() {
-		fmt.Printf("-- finalPatch:\n%s\n", finalPatch)
-		fmt.Printf("-- finalPatchType:\n%s\n", finalPatch)
-	}
+	logboek.Debug.LogF("-- finalPatch:\n%s\n", finalPatch)
+	logboek.Debug.LogF("-- finalPatchType:\n%s\n", finalPatch)
 
 	return finalPatch, finalPatchType, nil
 }
@@ -1343,10 +1328,8 @@ func createFinalThreeWayMergePatchWithFullFiltration(c *Client, target *resource
 	if err != nil {
 		return nil, "", fmt.Errorf("unable to filter current manifest: %s", err)
 	}
-	if debugUpdateResource() {
-		fmt.Printf("-- currentData:\n%s\n", currentData)
-		fmt.Printf("-- filteredCurrentData:\n%s\n", filteredCurrentData)
-	}
+	logboek.Debug.LogF("-- currentData:\n%s\n", currentData)
+	logboek.Debug.LogF("-- filteredCurrentData:\n%s\n", filteredCurrentData)
 
 	targetData, err := json.Marshal(target.Object)
 	if err != nil {
@@ -1356,10 +1339,8 @@ func createFinalThreeWayMergePatchWithFullFiltration(c *Client, target *resource
 	if err != nil {
 		return nil, "", fmt.Errorf("unable to filter target manifest: %s", err)
 	}
-	if debugUpdateResource() {
-		fmt.Printf("-- targetData:\n%s\n", targetData)
-		fmt.Printf("-- filteredTargetData:\n%s\n", filteredTargetData)
-	}
+	logboek.Debug.LogF("-- targetData:\n%s\n", targetData)
+	logboek.Debug.LogF("-- filteredTargetData:\n%s\n", filteredTargetData)
 
 	originalData, err := json.Marshal(originalObj)
 	if err != nil {
@@ -1369,10 +1350,8 @@ func createFinalThreeWayMergePatchWithFullFiltration(c *Client, target *resource
 	if err != nil {
 		return nil, "", fmt.Errorf("unable to filter original manifest: %s", err)
 	}
-	if debugUpdateResource() {
-		fmt.Printf("-- originalData:\n%s\n", originalData)
-		fmt.Printf("-- filteredOriginalData:\n%s\n", filteredOriginalData)
-	}
+	logboek.Debug.LogF("-- originalData:\n%s\n", originalData)
+	logboek.Debug.LogF("-- filteredOriginalData:\n%s\n", filteredOriginalData)
 
 	firstStagePatch, _, err := createThreeWayMergePatch(target, filteredOriginalData, filteredTargetData, filteredCurrentData)
 	if err != nil {
@@ -1382,10 +1361,8 @@ func createFinalThreeWayMergePatchWithFullFiltration(c *Client, target *resource
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to filter first stage three-way-merge patch: %s", err)
 	}
-	if debugUpdateResource() {
-		fmt.Printf("-- firstStagePatch:\n%s\n", firstStagePatch)
-		fmt.Printf("-- filteredFirstStagePatch:\n%s\n", filteredFirstStagePatch)
-	}
+	logboek.Debug.LogF("-- firstStagePatch:\n%s\n", firstStagePatch)
+	logboek.Debug.LogF("-- filteredFirstStagePatch:\n%s\n", filteredFirstStagePatch)
 
 	currentDataAfterFirstStagePatch, err := applyPatchForData(target, filteredCurrentData, filteredFirstStagePatch)
 	if err != nil {
@@ -1395,10 +1372,8 @@ func createFinalThreeWayMergePatchWithFullFiltration(c *Client, target *resource
 	if err != nil {
 		return nil, "", fmt.Errorf("unable to construct validated manifest for current state after first stage repair three-way-merge patch: %s", err)
 	}
-	if debugUpdateResource() {
-		fmt.Printf("-- currentDataAfterFirstStagePatch:\n%s\n", currentDataAfterFirstStagePatch)
-		fmt.Printf("-- validatedCurrentDataAfterFirstStagePatch:\n%s\n", validatedCurrentDataAfterFirstStagePatch)
-	}
+	logboek.Debug.LogF("-- currentDataAfterFirstStagePatch:\n%s\n", currentDataAfterFirstStagePatch)
+	logboek.Debug.LogF("-- validatedCurrentDataAfterFirstStagePatch:\n%s\n", validatedCurrentDataAfterFirstStagePatch)
 
 	finalPatch, patchType, err := createThreeWayMergePatch(target, filteredCurrentData, validatedCurrentDataAfterFirstStagePatch, filteredCurrentData)
 	if err != nil {
@@ -1408,11 +1383,9 @@ func createFinalThreeWayMergePatchWithFullFiltration(c *Client, target *resource
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to filter final three-way-merge patch: %s", err)
 	}
-	if debugUpdateResource() {
-		fmt.Printf("-- finalPatch:\n%s\n", finalPatch)
-		fmt.Printf("-- filteredFinalPatch:\n%s\n", filteredFinalPatch)
-		fmt.Printf("-- finalPatchType: %s\n", patchType)
-	}
+	logboek.Debug.LogF("-- finalPatch:\n%s\n", finalPatch)
+	logboek.Debug.LogF("-- filteredFinalPatch:\n%s\n", filteredFinalPatch)
+	logboek.Debug.LogF("-- finalPatchType: %s\n", patchType)
 
 	return filteredFinalPatch, patchType, nil
 }
@@ -1432,10 +1405,8 @@ func createRepairPatch(c *Client, target *resource.Info, currentObj, originalObj
 	if err != nil {
 		return nil, "", fmt.Errorf("unable to filter current manifest: %s", err)
 	}
-	if debugUpdateResource() {
-		fmt.Printf("-- currentData:\n%s\n", currentData)
-		fmt.Printf("-- filteredCurrentData:\n%s\n", filteredCurrentData)
-	}
+	logboek.Debug.LogF("-- currentData:\n%s\n", currentData)
+	logboek.Debug.LogF("-- filteredCurrentData:\n%s\n", filteredCurrentData)
 
 	targetData, err := json.Marshal(target.Object)
 	if err != nil {
@@ -1445,27 +1416,21 @@ func createRepairPatch(c *Client, target *resource.Info, currentObj, originalObj
 	if err != nil {
 		return nil, "", fmt.Errorf("unable to filter target manifest: %s", err)
 	}
-	if debugUpdateResource() {
-		fmt.Printf("-- targetData:\n%s\n", targetData)
-		fmt.Printf("-- filteredTargetData:\n%s\n", filteredTargetData)
-	}
+	logboek.Debug.LogF("-- targetData:\n%s\n", targetData)
+	logboek.Debug.LogF("-- filteredTargetData:\n%s\n", filteredTargetData)
 
 	helmApplyPatch, _, err := createPatch(target, originalObj)
 	if err != nil {
 		return nil, "", fmt.Errorf("unable to create helm-apply two-way merge patch: %s", err)
 	}
-	if debugUpdateResource() {
-		fmt.Printf("-- helmApplyPatch (2 way: previous chart version -> current chart version):\n%s\n", helmApplyPatch)
-	}
+	logboek.Debug.LogF("-- helmApplyPatch (2 way: previous chart version -> current chart version):\n%s\n", helmApplyPatch)
 
-	if debugUpdateResource() {
-		originalData, err := json.Marshal(originalObj)
-		if err != nil {
-			return nil, "", fmt.Errorf("serializing original configuration: %s", err)
-		}
-		threeWayPatch, _, err := createThreeWayMergePatch(target, originalData, targetData, currentData)
-		fmt.Printf("-- threeWayPatch (default kubectl-apply patch) (err=%s):\n%s\n", err, threeWayPatch)
+	originalData, err := json.Marshal(originalObj)
+	if err != nil {
+		return nil, "", fmt.Errorf("serializing original configuration: %s", err)
 	}
+	threeWayPatch, _, err := createThreeWayMergePatch(target, originalData, targetData, currentData)
+	logboek.Debug.LogF("-- threeWayPatch (default kubectl-apply patch) (err=%s):\n%s\n", err, threeWayPatch)
 
 	currentDataAfterHelmApply, err := applyPatchForData(target, filteredCurrentData, helmApplyPatch)
 	if err != nil {
@@ -1480,11 +1445,9 @@ func createRepairPatch(c *Client, target *resource.Info, currentObj, originalObj
 	if err != nil {
 		return nil, "", fmt.Errorf("unable to construct validated manifest for current state after helm-apply two-way merge patch: %s", err)
 	}
-	if debugUpdateResource() {
-		fmt.Printf("-- currentDataAfterHelmApply:\n%s\n", currentDataAfterHelmApply)
-		fmt.Printf("-- filteredCurrentDataAfterHelmApply:\n%s\n", filteredCurrentDataAfterHelmApply)
-		fmt.Printf("-- validatedFilteredCurrentDataAfterHelmApply:\n%s\n", validatedFilteredCurrentDataAfterHelmApply)
-	}
+	logboek.Debug.LogF("-- currentDataAfterHelmApply:\n%s\n", currentDataAfterHelmApply)
+	logboek.Debug.LogF("-- filteredCurrentDataAfterHelmApply:\n%s\n", filteredCurrentDataAfterHelmApply)
+	logboek.Debug.LogF("-- validatedFilteredCurrentDataAfterHelmApply:\n%s\n", validatedFilteredCurrentDataAfterHelmApply)
 
 	firstStageRepairPatch, _, err := createThreeWayMergePatch(target, filteredTargetData, filteredTargetData, filteredCurrentDataAfterHelmApply)
 	if err != nil {
@@ -1494,10 +1457,8 @@ func createRepairPatch(c *Client, target *resource.Info, currentObj, originalObj
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to filter first stage repair patch: %s", err)
 	}
-	if debugUpdateResource() {
-		fmt.Printf("-- firstStageRepairPatch:\n%s\n", firstStageRepairPatch)
-		fmt.Printf("-- filteredFirstStageRepairPatch:\n%s\n", filteredFirstStageRepairPatch)
-	}
+	logboek.Debug.LogF("-- firstStageRepairPatch:\n%s\n", firstStageRepairPatch)
+	logboek.Debug.LogF("-- filteredFirstStageRepairPatch:\n%s\n", filteredFirstStageRepairPatch)
 
 	currentDataAfterFirstStageRepair, err := applyPatchForData(target, filteredCurrentDataAfterHelmApply, filteredFirstStageRepairPatch)
 	if err != nil {
@@ -1507,10 +1468,8 @@ func createRepairPatch(c *Client, target *resource.Info, currentObj, originalObj
 	if err != nil {
 		return nil, "", fmt.Errorf("unable to construct validated manifest for current state after first stage repair three-way-merge patch: %s", err)
 	}
-	if debugUpdateResource() {
-		fmt.Printf("-- currentDataAfterFirstStageRepair:\n%s\n", currentDataAfterFirstStageRepair)
-		fmt.Printf("-- validatedCurrentDataAfterFirstStageRepair:\n%s\n", validatedCurrentDataAfterFirstStageRepair)
-	}
+	logboek.Debug.LogF("-- currentDataAfterFirstStageRepair:\n%s\n", currentDataAfterFirstStageRepair)
+	logboek.Debug.LogF("-- validatedCurrentDataAfterFirstStageRepair:\n%s\n", validatedCurrentDataAfterFirstStageRepair)
 
 	repairPatch, repairPatchType, err := createThreeWayMergePatch(target, validatedFilteredCurrentDataAfterHelmApply, validatedCurrentDataAfterFirstStageRepair, validatedFilteredCurrentDataAfterHelmApply)
 	if err != nil {
@@ -1520,10 +1479,8 @@ func createRepairPatch(c *Client, target *resource.Info, currentObj, originalObj
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to filter repair patch: %s", err)
 	}
-	if debugUpdateResource() {
-		fmt.Printf("-- repairPatch:\n%s\n", repairPatch)
-		fmt.Printf("-- filteredRepairPatch:\n%s\n", filteredRepairPatch)
-	}
+	logboek.Debug.LogF("-- repairPatch:\n%s\n", repairPatch)
+	logboek.Debug.LogF("-- filteredRepairPatch:\n%s\n", filteredRepairPatch)
 
 	return filteredRepairPatch, repairPatchType, nil
 }
@@ -1726,9 +1683,8 @@ func filterRepairPatch(patch []byte) ([]byte, error) {
 					delete(strategy, "rollingUpdate")
 					delete(strategy, "$retainKeys")
 
-					if debugUpdateResource() {
-						fmt.Printf("-- Deleted rollingUpdate and $retainKeys for patch:\n%s\n", patch)
-					}
+					logboek.Debug.LogF("-- Deleted rollingUpdate and $retainKeys for patch:\n%s\n", patch)
+
 					RepairDebugMessages = append(RepairDebugMessages, fmt.Sprintf("deleted rollingUpdate and $retainKeys for patch"))
 				}
 			}
@@ -1759,9 +1715,8 @@ func filterRepairPatch(patch []byte) ([]byte, error) {
 		if strings.HasPrefix(elem.Key, "$setElementOrder") || strings.HasPrefix(elem.Key, "$retainKeys") {
 			delete(elem.MapRef, elem.Key)
 
-			if debugUpdateResource() {
-				fmt.Printf("-- Deleted %s for patch\n", elem.Key)
-			}
+			logboek.Debug.LogF("-- Deleted %s for patch\n", elem.Key)
+
 			RepairDebugMessages = append(RepairDebugMessages, fmt.Sprintf("deleted %s for patch", elem.Key))
 
 			continue
@@ -1922,9 +1877,7 @@ func updateResource(c *Client, target *resource.Info, currentObj, originalObj ru
 			return fmt.Errorf("failed to create patch: %s", err)
 		}
 
-		if debugUpdateResource() {
-			fmt.Printf("-- helm patch:\n%s\n", patch)
-		}
+		logboek.Debug.LogF("-- helm patch:\n%s\n", patch)
 
 		if patch == nil {
 		        c.Log("Looks like there are no changes for %s %q in %q", target.Mapping.GroupVersionKind.Kind, target.Name, target.Namespace)
