@@ -99,7 +99,8 @@ func (s *ReleaseServer) prepareRelease(req *services.InstallReleaseRequest) (*re
 				Status:        &release.Status{Code: release.Status_UNKNOWN},
 				Description:   fmt.Sprintf("Install failed: %s", err),
 			},
-			Version: 0,
+			Version:                      0,
+			ResourcesHasOwnerReleaseName: true,
 		}
 		if manifestDoc != nil {
 			rel.Manifest = manifestDoc.String()
@@ -119,10 +120,23 @@ func (s *ReleaseServer) prepareRelease(req *services.InstallReleaseRequest) (*re
 			Status:        &release.Status{Code: release.Status_PENDING_INSTALL},
 			Description:   "Initial install underway", // Will be overwritten.
 		},
-		Manifest: manifestDoc.String(),
-		Hooks:    hooks,
-		Version:  int32(revision),
+		Manifest:                     manifestDoc.String(),
+		Hooks:                        hooks,
+		Version:                      int32(revision),
+		ResourcesHasOwnerReleaseName: true,
 	}
+
+	switch req.ThreeWayMergeMode {
+	case services.ThreeWayMergeMode_disabled:
+		rel.ThreeWayMergeEnabled = false
+	case services.ThreeWayMergeMode_enabled:
+		rel.ThreeWayMergeEnabled = true
+	case services.ThreeWayMergeMode_onlyNewReleases:
+		rel.ThreeWayMergeEnabled = true
+	default:
+		panic("non empty req.ThreeWayMergeMode required!")
+	}
+
 	if len(notesTxt) > 0 {
 		rel.Info.Status.Notes = notesTxt
 	}
@@ -167,7 +181,7 @@ func (s *ReleaseServer) performRelease(r *release.Release, req *services.Install
 
 	// crd-install hooks
 	if !req.DisableHooks && !req.DisableCrdHook {
-		if err := s.execHook(r.Hooks, r.Name, r.Namespace, hooks.CRDInstall, req.Timeout); err != nil {
+		if err := s.execHook(r.Hooks, r.Name, r.Namespace, hooks.CRDInstall, req.Timeout, makeReleaseInfo(r)); err != nil {
 			fmt.Printf("Finished installing CRD: %s", err)
 			return res, err
 		}
@@ -182,7 +196,7 @@ func (s *ReleaseServer) performRelease(r *release.Release, req *services.Install
 
 	// pre-install hooks
 	if !req.DisableHooks {
-		if err := s.execHook(r.Hooks, r.Name, r.Namespace, hooks.PreInstall, req.Timeout); err != nil {
+		if err := s.execHook(r.Hooks, r.Name, r.Namespace, hooks.PreInstall, req.Timeout, makeReleaseInfo(r)); err != nil {
 			return res, err
 		}
 	} else {
@@ -207,9 +221,10 @@ func (s *ReleaseServer) performRelease(r *release.Release, req *services.Install
 		// so as to append to the old release's history
 		r.Version = old.Version + 1
 		updateReq := &services.UpdateReleaseRequest{
-			Wait:     req.Wait,
-			Recreate: false,
-			Timeout:  req.Timeout,
+			Wait:              req.Wait,
+			Recreate:          false,
+			Timeout:           req.Timeout,
+			ThreeWayMergeMode: req.ThreeWayMergeMode,
 		}
 		s.recordRelease(r, false)
 		if err := s.ReleaseModule.Update(old, r, updateReq, s.env); err != nil {
@@ -239,7 +254,7 @@ func (s *ReleaseServer) performRelease(r *release.Release, req *services.Install
 
 	// post-install hooks
 	if !req.DisableHooks {
-		if err := s.execHook(r.Hooks, r.Name, r.Namespace, hooks.PostInstall, req.Timeout); err != nil {
+		if err := s.execHook(r.Hooks, r.Name, r.Namespace, hooks.PostInstall, req.Timeout, makeReleaseInfo(r)); err != nil {
 			msg := fmt.Sprintf("Release %q failed post-install: %s", r.Name, err)
 			s.Log("warning: %s", msg)
 			r.Info.Status.Code = release.Status_FAILED
