@@ -67,9 +67,9 @@ import (
 	"k8s.io/client-go/rest"
 	cachetools "k8s.io/client-go/tools/cache"
 	watchtools "k8s.io/client-go/tools/watch"
+	"k8s.io/kubectl/pkg/cmd/get"
 	cmdutil "k8s.io/kubectl/pkg/cmd/util"
 	"k8s.io/kubectl/pkg/validation"
-	"k8s.io/kubernetes/pkg/kubectl/cmd/get"
 )
 
 // MissingGetHeader is added to Get's output when a resource is not found.
@@ -1062,7 +1062,7 @@ func createResource(info *resource.Info, releaseInfo ReleaseInfo) error {
 		return fmt.Errorf("unable to set %s=%s annotation: %s", ownerReleaseAnnotation, releaseInfo.ReleaseName, err)
 	}
 
-	obj, err := resource.NewHelper(info.Client, info.Mapping).Create(info.Namespace, true, info.Object, nil)
+	obj, err := resource.NewHelper(info.Client, info.Mapping).Create(info.Namespace, true, info.Object)
 	if err != nil {
 		return err
 	}
@@ -1908,7 +1908,7 @@ func updateResource(c *Client, target *resource.Info, currentObj, originalObj ru
 		return err
 	}
 
-	pods, err := client.CoreV1().Pods(target.Namespace).List(metav1.ListOptions{
+	pods, err := client.CoreV1().Pods(target.Namespace).List(context.Background(), metav1.ListOptions{
 		LabelSelector: labels.Set(selector).AsSelector().String(),
 	})
 	if err != nil {
@@ -1920,7 +1920,7 @@ func updateResource(c *Client, target *resource.Info, currentObj, originalObj ru
 		c.Log("Restarting pod: %v/%v", pod.Namespace, pod.Name)
 
 		// Delete each pod for get them restarted with changed spec.
-		if err := client.CoreV1().Pods(pod.Namespace).Delete(pod.Name, metav1.NewPreconditionDeleteOptions(string(pod.UID))); err != nil {
+		if err := client.CoreV1().Pods(pod.Namespace).Delete(context.Background(), pod.Name, *metav1.NewPreconditionDeleteOptions(string(pod.UID))); err != nil {
 			return err
 		}
 	}
@@ -2248,7 +2248,7 @@ func (c *Client) GetPodLogs(name, ns string) (io.ReadCloser, error) {
 		return nil, err
 	}
 	req := client.CoreV1().Pods(ns).GetLogs(name, &v1.PodLogOptions{})
-	logReader, err := req.Stream()
+	logReader, err := req.Stream(context.Background())
 	if err != nil {
 		return nil, fmt.Errorf("error in opening log stream, got: %s", err)
 	}
