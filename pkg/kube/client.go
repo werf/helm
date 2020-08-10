@@ -60,6 +60,8 @@ type Client struct {
 	Log     func(string, ...interface{})
 	// Namespace allows to bypass the kubeconfig file for the choice of the namespace
 	Namespace string
+
+	ResourcesWaiter ResourcesWaiter
 }
 
 var addToScheme sync.Once
@@ -115,6 +117,10 @@ func (c *Client) Create(resources ResourceList) (*Result, error) {
 
 // Wait up to the given timeout for the specified resources to be ready
 func (c *Client) Wait(resources ResourceList, timeout time.Duration) error {
+	if c.ResourcesWaiter != nil {
+		return c.ResourcesWaiter.Wait(context.Background(), c.Namespace, resources, timeout)
+	}
+
 	cs, err := c.Factory.KubernetesClientSet()
 	if err != nil {
 		return err
@@ -308,6 +314,10 @@ func (c *Client) watchTimeout(t time.Duration) func(*resource.Info) error {
 //
 // Handling for other kinds will be added as necessary.
 func (c *Client) WatchUntilReady(resources ResourceList, timeout time.Duration) error {
+	if c.ResourcesWaiter != nil {
+		return c.ResourcesWaiter.WatchUntilReady(context.Background(), c.Namespace, resources, timeout)
+	}
+
 	// For jobs, there's also the option to do poll c.Jobs(namespace).Get():
 	// https://github.com/adamreese/kubernetes/blob/master/test/e2e/job.go#L291-L300
 	return perform(resources, c.watchTimeout(timeout))
