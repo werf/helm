@@ -28,4 +28,7 @@ var (
 	NewStatusCmd     = newStatusCmd
 	NewTestCmd       = newReleaseTestCmd
 	NewVerifyCmd     = newVerifyCmd
+	NewVersionCmd    = newVersionCmd
+
+	LoadPlugins = loadPlugins
 )
