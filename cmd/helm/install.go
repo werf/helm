@@ -21,6 +21,8 @@ import (
 	"io"
 	"time"
 
+	"helm.sh/helm/v3/pkg/postrender"
+
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -104,7 +106,16 @@ charts in a repository, use 'helm search'.
 `
 
 func newInstallCmd(cfg *action.Configuration, out io.Writer) *cobra.Command {
+	return NewInstallCmd(cfg, out, InstallCmdOptions{})
+}
+
+type InstallCmdOptions struct {
+	PostRenderer postrender.PostRenderer
+}
+
+func NewInstallCmd(cfg *action.Configuration, out io.Writer, opts InstallCmdOptions) *cobra.Command {
 	client := action.NewInstall(cfg)
+	client.PostRenderer = opts.PostRenderer
 	valueOpts := &values.Options{}
 	var outfmt output.Format
 
