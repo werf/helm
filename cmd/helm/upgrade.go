@@ -31,6 +31,7 @@ import (
 	"helm.sh/helm/v3/pkg/cli/output"
 	"helm.sh/helm/v3/pkg/cli/values"
 	"helm.sh/helm/v3/pkg/getter"
+	"helm.sh/helm/v3/pkg/postrender"
 	"helm.sh/helm/v3/pkg/storage/driver"
 )
 
@@ -62,6 +63,20 @@ set for a key called 'foo', the 'newbar' value would take precedence:
 `
 
 func newUpgradeCmd(cfg *action.Configuration, out io.Writer) *cobra.Command {
+	cmd, _ := NewUpgradeCmd(cfg, out, UpgradeCmdOptions{})
+	return cmd
+}
+
+type UpgradeCmdOptions struct {
+	PostRenderer    postrender.PostRenderer
+	ValueOpts       *values.Options
+	CreateNamespace *bool
+	Install         *bool
+	Wait            *bool
+	Atomic          *bool
+}
+
+func NewUpgradeCmd(cfg *action.Configuration, out io.Writer, opts UpgradeCmdOptions) (*cobra.Command, *action.Upgrade) {
 	client := action.NewUpgrade(cfg)
 	valueOpts := &values.Options{}
 	var outfmt output.Format
@@ -73,6 +88,30 @@ func newUpgradeCmd(cfg *action.Configuration, out io.Writer) *cobra.Command {
 		Long:  upgradeDesc,
 		Args:  require.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if opts.PostRenderer != nil {
+				client.PostRenderer = opts.PostRenderer
+			}
+			if opts.ValueOpts != nil {
+				valueOpts.ValueFiles = append(valueOpts.ValueFiles, opts.ValueOpts.ValueFiles...)
+				valueOpts.RawValues = append(valueOpts.RawValues, opts.ValueOpts.RawValues...)
+				valueOpts.StringValues = append(valueOpts.StringValues, opts.ValueOpts.StringValues...)
+				valueOpts.Values = append(valueOpts.Values, opts.ValueOpts.Values...)
+				valueOpts.FileValues = append(valueOpts.FileValues, opts.ValueOpts.FileValues...)
+				valueOpts.RawValuesOverride = append(valueOpts.RawValuesOverride, opts.ValueOpts.RawValuesOverride...)
+			}
+			if opts.CreateNamespace != nil {
+				createNamespace = *opts.CreateNamespace
+			}
+			if opts.Install != nil {
+				client.Install = *opts.Install
+			}
+			if opts.Wait != nil {
+				client.Wait = *opts.Wait
+			}
+			if opts.Atomic != nil {
+				client.Atomic = *opts.Atomic
+			}
+
 			client.Namespace = settings.Namespace()
 
 			// Fixes #7002 - Support reading values from STDIN for `upgrade` command
@@ -190,5 +229,5 @@ func newUpgradeCmd(cfg *action.Configuration, out io.Writer) *cobra.Command {
 	bindOutputFlag(cmd, &outfmt)
 	bindPostRenderFlag(cmd, &client.PostRenderer)
 
-	return cmd
+	return cmd, client
 }
