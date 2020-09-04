@@ -21,6 +21,8 @@ import (
 	"log"
 	"time"
 
+	"helm.sh/helm/v3/pkg/postrender"
+
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -104,6 +106,20 @@ charts in a repository, use 'helm search'.
 `
 
 func newInstallCmd(cfg *action.Configuration, out io.Writer) *cobra.Command {
+	cmd, _ := NewInstallCmd(cfg, out, InstallCmdOptions{})
+	return cmd
+}
+
+type InstallCmdOptions struct {
+	PostRenderer    postrender.PostRenderer
+	ValueOpts       *values.Options
+	CreateNamespace *bool
+	Wait            *bool
+	Atomic          *bool
+	Timeout         *time.Duration
+}
+
+func NewInstallCmd(cfg *action.Configuration, out io.Writer, opts InstallCmdOptions) (*cobra.Command, *action.Install) {
 	client := action.NewInstall(cfg)
 	valueOpts := &values.Options{}
 	var outfmt output.Format
@@ -117,6 +133,28 @@ func newInstallCmd(cfg *action.Configuration, out io.Writer) *cobra.Command {
 			return compInstall(args, toComplete, client)
 		},
 		RunE: func(_ *cobra.Command, args []string) error {
+			if opts.PostRenderer != nil {
+				client.PostRenderer = opts.PostRenderer
+			}
+			if opts.ValueOpts != nil {
+				valueOpts.ValueFiles = append(valueOpts.ValueFiles, opts.ValueOpts.ValueFiles...)
+				valueOpts.StringValues = append(valueOpts.StringValues, opts.ValueOpts.StringValues...)
+				valueOpts.Values = append(valueOpts.Values, opts.ValueOpts.Values...)
+				valueOpts.FileValues = append(valueOpts.FileValues, opts.ValueOpts.FileValues...)
+			}
+			if opts.CreateNamespace != nil {
+				client.CreateNamespace = *opts.CreateNamespace
+			}
+			if opts.Wait != nil {
+				client.Wait = *opts.Wait
+			}
+			if opts.Atomic != nil {
+				client.Atomic = *opts.Atomic
+			}
+			if opts.Timeout != nil {
+				client.Timeout = *opts.Timeout
+			}
+
 			rel, err := runInstall(args, client, valueOpts, out)
 			if err != nil {
 				return err
@@ -130,7 +168,7 @@ func newInstallCmd(cfg *action.Configuration, out io.Writer) *cobra.Command {
 	bindOutputFlag(cmd, &outfmt)
 	bindPostRenderFlag(cmd, &client.PostRenderer)
 
-	return cmd
+	return cmd, client
 }
 
 func addInstallFlags(cmd *cobra.Command, f *pflag.FlagSet, client *action.Install, valueOpts *values.Options) {
