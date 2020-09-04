@@ -16,19 +16,19 @@ var (
 	NewTemplateCmd   = newTemplateCmd
 	NewRepoCmd       = newRepoCmd
 	NewRollbackCmd   = newRollbackCmd
-	NewInstallCmd    = newInstallCmd
-	NewUpgradeCmd    = newUpgradeCmd
-	NewCreateCmd     = newCreateCmd
-	NewEnvCmd        = newEnvCmd
-	NewPackageCmd    = newPackageCmd
-	NewPluginCmd     = newPluginCmd
-	NewPullCmd       = newPullCmd
-	NewSearchCmd     = newSearchCmd
-	NewShowCmd       = newShowCmd
-	NewStatusCmd     = newStatusCmd
-	NewTestCmd       = newReleaseTestCmd
-	NewVerifyCmd     = newVerifyCmd
-	NewVersionCmd    = newVersionCmd
+	//NewInstallCmd    = newInstallCmd
+	//NewUpgradeCmd    = newUpgradeCmd
+	NewCreateCmd  = newCreateCmd
+	NewEnvCmd     = newEnvCmd
+	NewPackageCmd = newPackageCmd
+	NewPluginCmd  = newPluginCmd
+	NewPullCmd    = newPullCmd
+	NewSearchCmd  = newSearchCmd
+	NewShowCmd    = newShowCmd
+	NewStatusCmd  = newStatusCmd
+	NewTestCmd    = newReleaseTestCmd
+	NewVerifyCmd  = newVerifyCmd
+	NewVersionCmd = newVersionCmd
 
 	LoadPlugins = loadPlugins
 )
