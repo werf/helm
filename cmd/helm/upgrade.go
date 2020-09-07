@@ -31,6 +31,7 @@ import (
 	"helm.sh/helm/v3/pkg/cli/output"
 	"helm.sh/helm/v3/pkg/cli/values"
 	"helm.sh/helm/v3/pkg/getter"
+	"helm.sh/helm/v3/pkg/postrender"
 	"helm.sh/helm/v3/pkg/storage/driver"
 )
 
@@ -62,7 +63,16 @@ set for a key called 'foo', the 'newbar' value would take precedence:
 `
 
 func newUpgradeCmd(cfg *action.Configuration, out io.Writer) *cobra.Command {
+	return NewUpgradeCmd(cfg, out, UpgradeCmdOptions{})
+}
+
+type UpgradeCmdOptions struct {
+	PostRenderer postrender.PostRenderer
+}
+
+func NewUpgradeCmd(cfg *action.Configuration, out io.Writer, opts UpgradeCmdOptions) *cobra.Command {
 	client := action.NewUpgrade(cfg)
+	client.PostRenderer = opts.PostRenderer
 	valueOpts := &values.Options{}
 	var outfmt output.Format
 	var createNamespace bool
