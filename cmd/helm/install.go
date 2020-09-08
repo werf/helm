@@ -111,12 +111,16 @@ func newInstallCmd(cfg *action.Configuration, out io.Writer) *cobra.Command {
 
 type InstallCmdOptions struct {
 	PostRenderer postrender.PostRenderer
+	ValueOpts    *values.Options
 }
 
 func NewInstallCmd(cfg *action.Configuration, out io.Writer, opts InstallCmdOptions) *cobra.Command {
 	client := action.NewInstall(cfg)
 	client.PostRenderer = opts.PostRenderer
 	valueOpts := &values.Options{}
+	if opts.ValueOpts != nil {
+		valueOpts = opts.ValueOpts
+	}
 	var outfmt output.Format
 
 	cmd := &cobra.Command{
@@ -125,6 +129,7 @@ func NewInstallCmd(cfg *action.Configuration, out io.Writer, opts InstallCmdOpti
 		Long:  installDesc,
 		Args:  require.MinimumNArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
+			fmt.Printf("!!! valueOpts = %#v\n", *valueOpts)
 			rel, err := runInstall(args, client, valueOpts, out)
 			if err != nil {
 				return err

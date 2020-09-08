@@ -68,12 +68,16 @@ func newUpgradeCmd(cfg *action.Configuration, out io.Writer) *cobra.Command {
 
 type UpgradeCmdOptions struct {
 	PostRenderer postrender.PostRenderer
+	ValueOpts    *values.Options
 }
 
 func NewUpgradeCmd(cfg *action.Configuration, out io.Writer, opts UpgradeCmdOptions) *cobra.Command {
 	client := action.NewUpgrade(cfg)
 	client.PostRenderer = opts.PostRenderer
 	valueOpts := &values.Options{}
+	if opts.ValueOpts != nil {
+		valueOpts = opts.ValueOpts
+	}
 	var outfmt output.Format
 	var createNamespace bool
 
@@ -83,6 +87,7 @@ func NewUpgradeCmd(cfg *action.Configuration, out io.Writer, opts UpgradeCmdOpti
 		Long:  upgradeDesc,
 		Args:  require.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			fmt.Printf("!!! valueOpts = %#v\n", *valueOpts)
 			client.Namespace = settings.Namespace()
 
 			// Fixes #7002 - Support reading values from STDIN for `upgrade` command
