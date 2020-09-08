@@ -68,12 +68,16 @@ func newUpgradeCmd(cfg *action.Configuration, out io.Writer) *cobra.Command {
 
 type UpgradeCmdOptions struct {
 	PostRenderer postrender.PostRenderer
+	ValueOpts    *values.Options
 }
 
 func NewUpgradeCmd(cfg *action.Configuration, out io.Writer, opts UpgradeCmdOptions) *cobra.Command {
 	client := action.NewUpgrade(cfg)
 	client.PostRenderer = opts.PostRenderer
 	valueOpts := &values.Options{}
+	if opts.ValueOpts != nil {
+		valueOpts = opts.ValueOpts
+	}
 	var outfmt output.Format
 	var createNamespace bool
 
