@@ -106,7 +106,8 @@ charts in a repository, use 'helm search'.
 `
 
 func newInstallCmd(cfg *action.Configuration, out io.Writer) *cobra.Command {
-	return NewInstallCmd(cfg, out, InstallCmdOptions{})
+	cmd, _ := NewInstallCmd(cfg, out, InstallCmdOptions{})
+	return cmd
 }
 
 type InstallCmdOptions struct {
@@ -114,7 +115,7 @@ type InstallCmdOptions struct {
 	ValueOpts    *values.Options
 }
 
-func NewInstallCmd(cfg *action.Configuration, out io.Writer, opts InstallCmdOptions) *cobra.Command {
+func NewInstallCmd(cfg *action.Configuration, out io.Writer, opts InstallCmdOptions) (*cobra.Command, *action.Install) {
 	client := action.NewInstall(cfg)
 	client.PostRenderer = opts.PostRenderer
 	valueOpts := &values.Options{}
@@ -147,7 +148,7 @@ func NewInstallCmd(cfg *action.Configuration, out io.Writer, opts InstallCmdOpti
 	bindOutputFlag(cmd, &outfmt)
 	bindPostRenderFlag(cmd, &client.PostRenderer)
 
-	return cmd
+	return cmd, client
 }
 
 func addInstallFlags(f *pflag.FlagSet, client *action.Install, valueOpts *values.Options) {

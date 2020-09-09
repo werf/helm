@@ -63,7 +63,8 @@ set for a key called 'foo', the 'newbar' value would take precedence:
 `
 
 func newUpgradeCmd(cfg *action.Configuration, out io.Writer) *cobra.Command {
-	return NewUpgradeCmd(cfg, out, UpgradeCmdOptions{})
+	cmd, _ := NewUpgradeCmd(cfg, out, UpgradeCmdOptions{})
+	return cmd
 }
 
 type UpgradeCmdOptions struct {
@@ -71,7 +72,7 @@ type UpgradeCmdOptions struct {
 	ValueOpts    *values.Options
 }
 
-func NewUpgradeCmd(cfg *action.Configuration, out io.Writer, opts UpgradeCmdOptions) *cobra.Command {
+func NewUpgradeCmd(cfg *action.Configuration, out io.Writer, opts UpgradeCmdOptions) (*cobra.Command, *action.Upgrade) {
 	client := action.NewUpgrade(cfg)
 	client.PostRenderer = opts.PostRenderer
 	valueOpts := &values.Options{}
@@ -204,5 +205,5 @@ func NewUpgradeCmd(cfg *action.Configuration, out io.Writer, opts UpgradeCmdOpti
 	bindOutputFlag(cmd, &outfmt)
 	bindPostRenderFlag(cmd, &client.PostRenderer)
 
-	return cmd
+	return cmd, client
 }
