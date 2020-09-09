@@ -30,10 +30,12 @@ import (
 )
 
 type Options struct {
-	ValueFiles   []string
-	StringValues []string
-	Values       []string
-	FileValues   []string
+	ValueFiles        []string
+	RawValues         []map[string]interface{}
+	StringValues      []string
+	Values            []string
+	FileValues        []string
+	RawValuesOverride []map[string]interface{}
 }
 
 // MergeValues merges values from files specified via -f/--values and directly
@@ -55,6 +57,10 @@ func (opts *Options) MergeValues(p getter.Providers) (map[string]interface{}, er
 		}
 		// Merge with the previous map
 		base = mergeMaps(base, currentMap)
+	}
+
+	for _, rawValues := range opts.RawValues {
+		base = mergeMaps(base, rawValues)
 	}
 
 	// User specified a value via --set
@@ -80,6 +86,10 @@ func (opts *Options) MergeValues(p getter.Providers) (map[string]interface{}, er
 		if err := strvals.ParseIntoFile(value, base, reader); err != nil {
 			return nil, errors.Wrap(err, "failed parsing --set-file data")
 		}
+	}
+
+	for _, rawValues := range opts.RawValuesOverride {
+		base = mergeMaps(base, rawValues)
 	}
 
 	return base, nil
