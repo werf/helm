@@ -111,17 +111,16 @@ func newInstallCmd(cfg *action.Configuration, out io.Writer) *cobra.Command {
 }
 
 type InstallCmdOptions struct {
-	PostRenderer postrender.PostRenderer
-	ValueOpts    *values.Options
+	PostRenderer    postrender.PostRenderer
+	ValueOpts       *values.Options
+	CreateNamespace *bool
+	Wait            *bool
+	Atomic          *bool
 }
 
 func NewInstallCmd(cfg *action.Configuration, out io.Writer, opts InstallCmdOptions) (*cobra.Command, *action.Install) {
 	client := action.NewInstall(cfg)
-	client.PostRenderer = opts.PostRenderer
 	valueOpts := &values.Options{}
-	if opts.ValueOpts != nil {
-		valueOpts = opts.ValueOpts
-	}
 	var outfmt output.Format
 
 	cmd := &cobra.Command{
@@ -130,6 +129,27 @@ func NewInstallCmd(cfg *action.Configuration, out io.Writer, opts InstallCmdOpti
 		Long:  installDesc,
 		Args:  require.MinimumNArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
+			if opts.PostRenderer != nil {
+				client.PostRenderer = opts.PostRenderer
+			}
+			if opts.ValueOpts != nil {
+				valueOpts.ValueFiles = append(valueOpts.ValueFiles, opts.ValueOpts.ValueFiles...)
+				valueOpts.RawValues = append(valueOpts.RawValues, opts.ValueOpts.RawValues...)
+				valueOpts.StringValues = append(valueOpts.StringValues, opts.ValueOpts.StringValues...)
+				valueOpts.Values = append(valueOpts.Values, opts.ValueOpts.Values...)
+				valueOpts.FileValues = append(valueOpts.FileValues, opts.ValueOpts.FileValues...)
+				valueOpts.RawValuesOverride = append(valueOpts.RawValuesOverride, opts.ValueOpts.RawValuesOverride...)
+			}
+			if opts.CreateNamespace != nil {
+				client.CreateNamespace = *opts.CreateNamespace
+			}
+			if opts.Wait != nil {
+				client.Wait = *opts.Wait
+			}
+			if opts.Atomic != nil {
+				client.Atomic = *opts.Atomic
+			}
+
 			rel, err := runInstall(args, client, valueOpts, out)
 			if err != nil {
 				return err
