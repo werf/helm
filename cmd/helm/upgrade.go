@@ -68,6 +68,7 @@ func newUpgradeCmd(cfg *action.Configuration, out io.Writer) *cobra.Command {
 }
 
 type UpgradeCmdOptions struct {
+	LoadOptions     loader.LoadOptions
 	PostRenderer    postrender.PostRenderer
 	ValueOpts       *values.Options
 	CreateNamespace *bool
@@ -142,7 +143,7 @@ func NewUpgradeCmd(cfg *action.Configuration, out io.Writer, opts UpgradeCmdOpti
 					instClient.DisableOpenAPIValidation = client.DisableOpenAPIValidation
 					instClient.SubNotes = client.SubNotes
 
-					rel, err := runInstall(args, instClient, valueOpts, out)
+					rel, err := runInstall(args, instClient, valueOpts, out, opts.LoadOptions)
 					if err != nil {
 						return err
 					}
@@ -168,7 +169,7 @@ func NewUpgradeCmd(cfg *action.Configuration, out io.Writer, opts UpgradeCmdOpti
 			}
 
 			// Check chart dependencies to make sure all are present in /charts
-			ch, err := loader.Load(chartPath)
+			ch, err := loader.Load(chartPath, opts.LoadOptions)
 			if err != nil {
 				return err
 			}
