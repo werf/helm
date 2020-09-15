@@ -71,7 +71,7 @@ func newPackageCmd(out io.Writer) *cobra.Command {
 			client.RepositoryConfig = settings.RepositoryConfig
 			client.RepositoryCache = settings.RepositoryCache
 			p := getter.All(settings)
-			vals, err := valueOpts.MergeValues(p)
+			vals, err := valueOpts.MergeValues(p, nil)
 			if err != nil {
 				return err
 			}
