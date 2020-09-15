@@ -66,7 +66,7 @@ func NewShow(output ShowOutputFormat) *Show {
 // Run executes 'helm show' against the given release.
 func (s *Show) Run(chartpath string) (string, error) {
 	var out strings.Builder
-	chrt, err := loader.Load(chartpath)
+	chrt, err := loader.Load(chartpath, loader.LoadOptions{})
 	if err != nil {
 		return "", err
 	}
