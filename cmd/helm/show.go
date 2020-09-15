@@ -25,6 +25,7 @@ import (
 
 	"helm.sh/helm/v3/cmd/helm/require"
 	"helm.sh/helm/v3/pkg/action"
+	"helm.sh/helm/v3/pkg/chart/loader"
 )
 
 const showDesc = `
@@ -176,9 +177,16 @@ func runShow(args []string, client *action.Show) (string, error) {
 		client.Version = ">0.0.0-0"
 	}
 
-	cp, err := client.ChartPathOptions.LocateChart(args[0], settings)
+	var cp string
+	var err error
+	if loader.GlobalLoadOptions.LocateChartFunc != nil {
+		cp, err = loader.GlobalLoadOptions.LocateChartFunc(args[0], settings)
+	} else {
+		cp, err = client.ChartPathOptions.LocateChart(args[0], settings)
+	}
 	if err != nil {
 		return "", err
 	}
+
 	return client.Run(cp)
 }
