@@ -35,6 +35,14 @@ not change the item as it exists in the cache.
 `
 
 func newChartSaveCmd(cfg *action.Configuration, out io.Writer) *cobra.Command {
+	return NewChartSaveCmd(cfg, out, ChartSaveCmdOptions{})
+}
+
+type ChartSaveCmdOptions struct {
+	LoadOptions loader.LoadOptions
+}
+
+func NewChartSaveCmd(cfg *action.Configuration, out io.Writer, opts ChartSaveCmdOptions) *cobra.Command {
 	return &cobra.Command{
 		Use:    "save [path] [ref]",
 		Short:  "save a chart directory",
@@ -50,7 +58,7 @@ func newChartSaveCmd(cfg *action.Configuration, out io.Writer) *cobra.Command {
 				return err
 			}
 
-			ch, err := loader.Load(path)
+			ch, err := loader.Load(path, opts.LoadOptions)
 			if err != nil {
 				return err
 			}

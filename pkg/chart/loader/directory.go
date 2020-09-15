@@ -34,14 +34,14 @@ import (
 type DirLoader string
 
 // Load loads the chart
-func (l DirLoader) Load() (*chart.Chart, error) {
-	return LoadDir(string(l))
+func (l DirLoader) Load(opts LoadOptions) (*chart.Chart, error) {
+	return LoadDir(string(l), opts)
 }
 
 // LoadDir loads from a directory.
 //
 // This loads charts only from directories.
-func LoadDir(dir string) (*chart.Chart, error) {
+func LoadDir(dir string, opts LoadOptions) (*chart.Chart, error) {
 	topdir, err := filepath.Abs(dir)
 	if err != nil {
 		return nil, err
@@ -111,5 +111,5 @@ func LoadDir(dir string) (*chart.Chart, error) {
 		return c, err
 	}
 
-	return LoadFiles(files)
+	return LoadFiles(files, opts)
 }

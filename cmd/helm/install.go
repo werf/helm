@@ -111,6 +111,7 @@ func newInstallCmd(cfg *action.Configuration, out io.Writer) *cobra.Command {
 }
 
 type InstallCmdOptions struct {
+	LoadOptions     loader.LoadOptions
 	PostRenderer    postrender.PostRenderer
 	ValueOpts       *values.Options
 	CreateNamespace *bool
@@ -152,7 +153,7 @@ func NewInstallCmd(cfg *action.Configuration, out io.Writer, opts InstallCmdOpti
 				client.Timeout = *opts.Timeout
 			}
 
-			rel, err := runInstall(args, client, valueOpts, out)
+			rel, err := runInstall(args, client, valueOpts, out, opts.LoadOptions)
 			if err != nil {
 				return err
 			}
@@ -193,7 +194,7 @@ func addInstallFlags(f *pflag.FlagSet, client *action.Install, valueOpts *values
 	addChartPathOptionsFlags(f, &client.ChartPathOptions)
 }
 
-func runInstall(args []string, client *action.Install, valueOpts *values.Options, out io.Writer) (*release.Release, error) {
+func runInstall(args []string, client *action.Install, valueOpts *values.Options, out io.Writer, loadOpts loader.LoadOptions) (*release.Release, error) {
 	debug("Original chart version: %q", client.Version)
 	if client.Version == "" && client.Devel {
 		debug("setting version to >0.0.0-0")
@@ -220,7 +221,7 @@ func runInstall(args []string, client *action.Install, valueOpts *values.Options
 	}
 
 	// Check chart dependencies to make sure all are present in /charts
-	chartRequested, err := loader.Load(cp)
+	chartRequested, err := loader.Load(cp, loadOpts)
 	if err != nil {
 		return nil, err
 	}
@@ -254,7 +255,7 @@ func runInstall(args []string, client *action.Install, valueOpts *values.Options
 					return nil, err
 				}
 				// Reload the chart with the updated Chart.lock file.
-				if chartRequested, err = loader.Load(cp); err != nil {
+				if chartRequested, err = loader.Load(cp, loadOpts); err != nil {
 					return nil, errors.Wrap(err, "failed reloading chart after repo update")
 				}
 			} else {

@@ -196,7 +196,7 @@ func (m *Manager) loadChartDir() (*chart.Chart, error) {
 	} else if !fi.IsDir() {
 		return nil, errors.New("only unpacked charts can be updated")
 	}
-	return loader.LoadDir(m.ChartPath)
+	return loader.LoadDir(m.ChartPath, loader.LoadOptions{})
 }
 
 // resolve takes a list of dependencies and translates them into an exact version to download.
@@ -245,7 +245,7 @@ func (m *Manager) downloadAll(deps []*chart.Dependency) error {
 		if dep.Repository == "" {
 			fmt.Fprintf(m.Out, "Dependency %s did not declare a repository. Assuming it exists in the charts directory\n", dep.Name)
 			chartPath := filepath.Join(tmpPath, dep.Name)
-			ch, err := loader.LoadDir(chartPath)
+			ch, err := loader.LoadDir(chartPath, loader.LoadOptions{})
 			if err != nil {
 				return fmt.Errorf("Unable to load chart: %v", err)
 			}
@@ -365,7 +365,7 @@ func (m *Manager) safeDeleteDep(name, dir string) error {
 		return err
 	}
 	for _, fname := range files {
-		ch, err := loader.LoadFile(fname)
+		ch, err := loader.LoadFile(fname, loader.LoadOptions{})
 		if err != nil {
 			fmt.Fprintf(m.Out, "Could not verify %s for deletion: %s (Skipping)", fname, err)
 			continue
@@ -692,7 +692,7 @@ func tarFromLocalDir(chartpath, name, repo, version string) (string, error) {
 		return "", err
 	}
 
-	ch, err := loader.LoadDir(origPath)
+	ch, err := loader.LoadDir(origPath, loader.LoadOptions{})
 	if err != nil {
 		return "", err
 	}

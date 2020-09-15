@@ -317,7 +317,7 @@ func messageBlock(chartpath string) (*bytes.Buffer, error) {
 	}
 
 	// Load the archive into memory.
-	chart, err := loader.LoadFile(chartpath)
+	chart, err := loader.LoadFile(chartpath, loader.LoadOptions{})
 	if err != nil {
 		return b, err
 	}
