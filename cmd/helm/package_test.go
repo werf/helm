@@ -187,7 +187,7 @@ func TestSetAppVersion(t *testing.T) {
 	} else if fi.Size() == 0 {
 		t.Errorf("file %q has zero bytes.", chartPath)
 	}
-	ch, err := loader.Load(chartPath)
+	ch, err := loader.Load(chartPath, loader.LoadOptions{})
 	if err != nil {
 		t.Fatalf("unexpected error loading packaged chart: %v", err)
 	}

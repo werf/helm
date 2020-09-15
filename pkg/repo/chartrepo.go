@@ -176,7 +176,7 @@ func (r *ChartRepository) saveIndexFile() error {
 
 func (r *ChartRepository) generateIndex() error {
 	for _, path := range r.ChartPaths {
-		ch, err := loader.Load(path)
+		ch, err := loader.Load(path, loader.LoadOptions{})
 		if err != nil {
 			return err
 		}

@@ -76,7 +76,7 @@ func (r *Resolver) Resolve(reqs []*chart.Dependency, repoNames map[string]string
 
 			// The version of the chart locked will be the version of the chart
 			// currently listed in the file system within the chart.
-			ch, err := loader.LoadDir(chartpath)
+			ch, err := loader.LoadDir(chartpath, loader.LoadOptions{})
 			if err != nil {
 				return nil, err
 			}

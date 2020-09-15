@@ -41,7 +41,7 @@ func TestCreate(t *testing.T) {
 
 	dir := filepath.Join(tdir, "foo")
 
-	mychart, err := loader.LoadDir(c)
+	mychart, err := loader.LoadDir(c, loader.LoadOptions{})
 	if err != nil {
 		t.Fatalf("Failed to load newly created chart %q: %s", c, err)
 	}
@@ -89,7 +89,7 @@ func TestCreateFrom(t *testing.T) {
 
 	dir := filepath.Join(tdir, "foo")
 	c := filepath.Join(tdir, cf.Name)
-	mychart, err := loader.LoadDir(c)
+	mychart, err := loader.LoadDir(c, loader.LoadOptions{})
 	if err != nil {
 		t.Fatalf("Failed to load newly created chart %q: %s", c, err)
 	}

@@ -53,7 +53,7 @@ func Templates(linter *support.Linter, values map[string]interface{}, namespace 
 	}
 
 	// Load chart and parse templates
-	chart, err := loader.Load(linter.ChartDir)
+	chart, err := loader.Load(linter.ChartDir, loader.LoadOptions{})
 
 	chartLoaded := linter.RunLinterRule(support.ErrorSev, fpath, err)
 

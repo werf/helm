@@ -488,7 +488,7 @@ var Stderr io.Writer = os.Stderr
 
 // CreateFrom creates a new chart, but scaffolds it from the src chart.
 func CreateFrom(chartfile *chart.Metadata, dest, src string) error {
-	schart, err := loader.Load(src)
+	schart, err := loader.Load(src, loader.LoadOptions{})
 	if err != nil {
 		return errors.Wrapf(err, "could not load %s", src)
 	}
