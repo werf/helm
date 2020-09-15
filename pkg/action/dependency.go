@@ -45,7 +45,7 @@ func NewDependency() *Dependency {
 
 // List executes 'helm dependency list'.
 func (d *Dependency) List(chartpath string, out io.Writer) error {
-	c, err := loader.Load(chartpath)
+	c, err := loader.Load(chartpath, loader.LoadOptions{})
 	if err != nil {
 		return err
 	}
@@ -79,7 +79,7 @@ func (d *Dependency) dependencyStatus(chartpath string, dep *chart.Dependency, p
 	case len(archives) == 1:
 		archive := archives[0]
 		if _, err := os.Stat(archive); err == nil {
-			c, err := loader.Load(archive)
+			c, err := loader.Load(archive, loader.LoadOptions{})
 			if err != nil {
 				return "corrupt"
 			}
@@ -167,7 +167,7 @@ func (d *Dependency) printMissing(chartpath string, out io.Writer, reqs []*chart
 		if !fi.IsDir() && filepath.Ext(f) != ".tgz" {
 			continue
 		}
-		c, err := loader.Load(f)
+		c, err := loader.Load(f, loader.LoadOptions{})
 		if err != nil {
 			fmt.Fprintf(out, "WARNING: %q is not a chart.\n", f)
 			continue
