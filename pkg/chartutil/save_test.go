@@ -70,7 +70,7 @@ func TestSave(t *testing.T) {
 				t.Fatalf("Expected %q to end with .tgz", where)
 			}
 
-			c2, err := loader.LoadFile(where)
+			c2, err := loader.LoadFile(where, loader.LoadOptions{})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -99,7 +99,7 @@ func TestSave(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Failed to save: %s", err)
 			}
-			c2, err = loader.LoadFile(where)
+			c2, err = loader.LoadFile(where, loader.LoadOptions{})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -229,7 +229,7 @@ func TestSaveDir(t *testing.T) {
 		t.Fatalf("Failed to save: %s", err)
 	}
 
-	c2, err := loader.LoadDir(tmp + "/ahab")
+	c2, err := loader.LoadDir(tmp+"/ahab", loader.LoadOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
