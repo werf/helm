@@ -54,6 +54,8 @@ type Chart struct {
 
 	parent       *Chart
 	dependencies []*Chart
+
+	ChartExtender ChartExtender `json:"-"`
 }
 
 type CRD struct {

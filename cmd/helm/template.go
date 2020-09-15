@@ -27,6 +27,8 @@ import (
 	"sort"
 	"strings"
 
+	"helm.sh/helm/v3/pkg/postrender"
+
 	"github.com/spf13/cobra"
 
 	"helm.sh/helm/v3/cmd/helm/require"
@@ -45,6 +47,15 @@ faked locally. Additionally, none of the server-side testing of chart validity
 `
 
 func newTemplateCmd(cfg *action.Configuration, out io.Writer) *cobra.Command {
+	cmd, _ := NewTemplateCmd(cfg, out, TemplateCmdOptions{})
+	return cmd
+}
+
+type TemplateCmdOptions struct {
+	PostRenderer postrender.PostRenderer
+}
+
+func NewTemplateCmd(cfg *action.Configuration, out io.Writer, opts TemplateCmdOptions) (*cobra.Command, *action.Install) {
 	var validate bool
 	var includeCrds bool
 	client := action.NewInstall(cfg)
@@ -61,6 +72,9 @@ func newTemplateCmd(cfg *action.Configuration, out io.Writer) *cobra.Command {
 			return compInstall(args, toComplete, client)
 		},
 		RunE: func(_ *cobra.Command, args []string) error {
+			if opts.PostRenderer != nil {
+				client.PostRenderer = opts.PostRenderer
+			}
 			client.DryRun = true
 			client.ReleaseName = "RELEASE-NAME"
 			client.Replace = true // Skip the name check
@@ -168,7 +182,7 @@ func newTemplateCmd(cfg *action.Configuration, out io.Writer) *cobra.Command {
 	f.BoolVar(&client.UseReleaseName, "release-name", false, "use release name in the output-dir path.")
 	bindPostRenderFlag(cmd, &client.PostRenderer)
 
-	return cmd
+	return cmd, client
 }
 
 // The following functions (writeToFile, createOrOpenFile, and ensureDirectoryForFile)
