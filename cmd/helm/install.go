@@ -135,11 +135,9 @@ func NewInstallCmd(cfg *action.Configuration, out io.Writer, opts InstallCmdOpti
 			}
 			if opts.ValueOpts != nil {
 				valueOpts.ValueFiles = append(valueOpts.ValueFiles, opts.ValueOpts.ValueFiles...)
-				valueOpts.RawValues = append(valueOpts.RawValues, opts.ValueOpts.RawValues...)
 				valueOpts.StringValues = append(valueOpts.StringValues, opts.ValueOpts.StringValues...)
 				valueOpts.Values = append(valueOpts.Values, opts.ValueOpts.Values...)
 				valueOpts.FileValues = append(valueOpts.FileValues, opts.ValueOpts.FileValues...)
-				valueOpts.RawValuesOverride = append(valueOpts.RawValuesOverride, opts.ValueOpts.RawValuesOverride...)
 			}
 			if opts.CreateNamespace != nil {
 				client.CreateNamespace = *opts.CreateNamespace
