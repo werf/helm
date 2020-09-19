@@ -75,6 +75,7 @@ type UpgradeCmdOptions struct {
 	Install         *bool
 	Wait            *bool
 	Atomic          *bool
+	Timeout         *time.Duration
 }
 
 func NewUpgradeCmd(cfg *action.Configuration, out io.Writer, opts UpgradeCmdOptions) (*cobra.Command, *action.Upgrade) {
@@ -109,6 +110,9 @@ func NewUpgradeCmd(cfg *action.Configuration, out io.Writer, opts UpgradeCmdOpti
 			}
 			if opts.Atomic != nil {
 				client.Atomic = *opts.Atomic
+			}
+			if opts.Timeout != nil {
+				client.Timeout = *opts.Timeout
 			}
 
 			client.Namespace = settings.Namespace()
