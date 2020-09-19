@@ -174,7 +174,7 @@ func (u *Upgrade) prepareUpgrade(name string, chart *chart.Chart, vals map[strin
 		currentRelease, err = u.cfg.Releases.Deployed(name)
 		if err != nil {
 			if errors.Is(err, driver.ErrNoDeployedReleases) &&
-				(lastRelease.Info.Status == release.StatusFailed || lastRelease.Info.Status == release.StatusSuperseded) {
+				(lastRelease.Info.Status == release.StatusFailed || lastRelease.Info.Status == release.StatusSuperseded || lastRelease.Info.Status == release.StatusPendingInstall || lastRelease.Info.Status == release.StatusPendingUpgrade || lastRelease.Info.Status == release.StatusPendingRollback) {
 				currentRelease = lastRelease
 			} else {
 				return nil, nil, err
