@@ -117,6 +117,7 @@ type InstallCmdOptions struct {
 	CreateNamespace *bool
 	Wait            *bool
 	Atomic          *bool
+	Timeout         *time.Duration
 }
 
 func NewInstallCmd(cfg *action.Configuration, out io.Writer, opts InstallCmdOptions) (*cobra.Command, *action.Install) {
@@ -147,6 +148,9 @@ func NewInstallCmd(cfg *action.Configuration, out io.Writer, opts InstallCmdOpti
 			}
 			if opts.Atomic != nil {
 				client.Atomic = *opts.Atomic
+			}
+			if opts.Timeout != nil {
+				client.Timeout = *opts.Timeout
 			}
 
 			rel, err := runInstall(args, client, valueOpts, out, opts.LoadOptions)
