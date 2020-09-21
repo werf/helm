@@ -253,7 +253,7 @@ func (c *Client) Update(original, target ResourceList, force bool) (*Result, err
 // attempt to delete all resources even if one or more fail and collect any
 // errors. All successfully deleted items will be returned in the `Deleted`
 // ResourceList that is part of the result.
-func (c *Client) Delete(resources ResourceList) (*Result, []error) {
+func (c *Client) Delete(resources ResourceList, opts DeleteOptions) (*Result, []error) {
 	var errs []error
 	res := &Result{}
 	mtx := sync.Mutex{}
@@ -282,6 +282,11 @@ func (c *Client) Delete(resources ResourceList) (*Result, []error) {
 	if errs != nil {
 		return nil, errs
 	}
+
+	if opts.Wait {
+		c.ResourcesWaiter.WaitUntilDeleted(context.Background(), c.Namespace, res.Deleted, opts.WaitTimeout)
+	}
+
 	return res, nil
 }
 
