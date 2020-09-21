@@ -20,6 +20,8 @@ import (
 	"strings"
 	"time"
 
+	"helm.sh/helm/v3/pkg/kube"
+
 	"github.com/pkg/errors"
 
 	"helm.sh/helm/v3/pkg/chartutil"
@@ -206,7 +208,7 @@ func (u *Uninstall) deleteRelease(rel *release.Release) (string, []error) {
 		return "", []error{errors.Wrap(err, "unable to build kubernetes objects for delete")}
 	}
 	if len(resources) > 0 {
-		_, errs = u.cfg.KubeClient.Delete(resources)
+		_, errs = u.cfg.KubeClient.Delete(resources, kube.DeleteOptions{Wait: true})
 	}
 	return kept, errs
 }

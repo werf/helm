@@ -373,7 +373,7 @@ func (u *Upgrade) failRelease(rel *release.Release, created kube.ResourceList, e
 	u.cfg.recordRelease(rel)
 	if u.CleanupOnFail && len(created) > 0 {
 		u.cfg.Log("Cleanup on fail set, cleaning up %d resources", len(created))
-		_, errs := u.cfg.KubeClient.Delete(created)
+		_, errs := u.cfg.KubeClient.Delete(created, kube.DeleteOptions{Wait: true, WaitTimeout: u.Timeout})
 		if errs != nil {
 			var errorList []string
 			for _, e := range errs {
