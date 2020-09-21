@@ -22,6 +22,7 @@ import (
 
 	"github.com/pkg/errors"
 
+	"helm.sh/helm/v3/pkg/kube"
 	"helm.sh/helm/v3/pkg/release"
 	helmtime "helm.sh/helm/v3/pkg/time"
 )
@@ -131,7 +132,7 @@ func (cfg *Configuration) deleteHookByPolicy(h *release.Hook, policy release.Hoo
 		if err != nil {
 			return errors.Wrapf(err, "unable to build kubernetes object for deleting hook %s", h.Path)
 		}
-		_, errs := cfg.KubeClient.Delete(resources)
+		_, errs := cfg.KubeClient.Delete(resources, kube.DeleteOptions{Wait: true})
 		if len(errs) > 0 {
 			return errors.New(joinErrors(errs))
 		}
