@@ -23,6 +23,11 @@ import (
 	v1 "k8s.io/api/core/v1"
 )
 
+type DeleteOptions struct {
+	Wait        bool
+	WaitTimeout time.Duration
+}
+
 // Interface represents a client capable of communicating with the Kubernetes API.
 //
 // A KubernetesClient must be concurrency safe.
@@ -35,7 +40,7 @@ type Interface interface {
 	WaitWithJobs(resources ResourceList, timeout time.Duration) error
 
 	// Delete destroys one or more resources.
-	Delete(resources ResourceList) (*Result, []error)
+	Delete(resources ResourceList, opts DeleteOptions) (*Result, []error)
 
 	// Watch the resource in reader until it is "ready". This method
 	//
