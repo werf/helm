@@ -18,6 +18,7 @@ package action
 import (
 	"bytes"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/pkg/errors"
@@ -136,6 +137,24 @@ func (cfg *Configuration) deleteHookByPolicy(h *release.Hook, policy release.Hoo
 		if len(errs) > 0 {
 			return errors.New(joinErrors(errs))
 		}
+	}
+	return nil
+}
+
+func (cfg *Configuration) deleteHooks(hooks []*release.Hook) error {
+	var manifests []string
+	for _, h := range hooks {
+		manifests = append(manifests, h.Manifest)
+	}
+
+	manifestsStr := strings.Join(manifests, "\n---\n")
+	resources, err := cfg.KubeClient.Build(bytes.NewBufferString(manifestsStr), false)
+	if err != nil {
+		return errors.Wrapf(err, "unable to build kubernetes objects for deleting hooks")
+	}
+	_, errs := cfg.KubeClient.Delete(resources, kube.DeleteOptions{Wait: true})
+	if len(errs) > 0 {
+		return errors.New(joinErrors(errs))
 	}
 	return nil
 }
