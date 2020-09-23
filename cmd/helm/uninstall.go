@@ -38,6 +38,15 @@ uninstalling them.
 `
 
 func newUninstallCmd(cfg *action.Configuration, out io.Writer) *cobra.Command {
+	return NewUninstallCmd(cfg, out, UninstallCmdOptions{})
+}
+
+type UninstallCmdOptions struct {
+	DeleteNamespace *bool
+	DeleteHooks     *bool
+}
+
+func NewUninstallCmd(cfg *action.Configuration, out io.Writer, opts UninstallCmdOptions) *cobra.Command {
 	client := action.NewUninstall(cfg)
 
 	cmd := &cobra.Command{
@@ -51,6 +60,13 @@ func newUninstallCmd(cfg *action.Configuration, out io.Writer) *cobra.Command {
 			return compListReleases(toComplete, args, cfg)
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if opts.DeleteHooks != nil {
+				client.DeleteHooks = *opts.DeleteHooks
+			}
+			if opts.DeleteNamespace != nil {
+				client.DeleteNamespace = *opts.DeleteNamespace
+			}
+
 			for i := 0; i < len(args); i++ {
 
 				res, err := client.Run(args[i])
