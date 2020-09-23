@@ -17,6 +17,8 @@ limitations under the License.
 package action
 
 import (
+	"context"
+	"fmt"
 	"strings"
 	"time"
 
@@ -41,6 +43,9 @@ type Uninstall struct {
 	KeepHistory  bool
 	Timeout      time.Duration
 	Description  string
+
+	DeleteHooks     bool
+	DeleteNamespace bool
 }
 
 // NewUninstall creates a new Uninstall object with the given configuration.
@@ -121,6 +126,16 @@ func (u *Uninstall) Run(name string) (*release.UninstallReleaseResponse, error) 
 		}
 	}
 
+	if u.DeleteHooks {
+		var hooksFromAllReleases []*release.Hook
+		for _, r := range rels {
+			hooksFromAllReleases = append(hooksFromAllReleases, r.Hooks...)
+		}
+		if err := u.cfg.deleteHooks(hooksFromAllReleases); err != nil {
+			errs = append(errs, err)
+		}
+	}
+
 	rel.Info.Status = release.StatusUninstalled
 	if len(u.Description) > 0 {
 		rel.Info.Description = u.Description
@@ -145,6 +160,12 @@ func (u *Uninstall) Run(name string) (*release.UninstallReleaseResponse, error) 
 
 	if err := u.cfg.Releases.Update(rel); err != nil {
 		u.cfg.Log("uninstall: Failed to store updated release: %s", err)
+	}
+
+	if u.DeleteNamespace {
+		if err := u.cfg.KubeClient.DeleteNamespace(context.Background(), rel.Namespace, kube.DeleteOptions{Wait: true, WaitTimeout: u.Timeout}); err != nil {
+			errs = append(errs, errors.Wrap(err, fmt.Sprintf("unable to delete namespace %s", rel.Namespace)))
+		}
 	}
 
 	if len(errs) > 0 {
