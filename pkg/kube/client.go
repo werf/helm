@@ -311,7 +311,18 @@ func (c *Client) Delete(resources ResourceList, opts DeleteOptions) (*Result, []
 	}
 
 	if opts.Wait {
-		c.ResourcesWaiter.WaitUntilDeleted(context.Background(), c.Namespace, res.Deleted, opts.WaitTimeout)
+		var specs []*ResourcesWaiterDeleteResourceSpec
+		for _, resource := range res.Deleted {
+			specs = append(specs, &ResourcesWaiterDeleteResourceSpec{
+				ResourceName:         resource.Name,
+				Namespace:            resource.Namespace,
+				GroupVersionResource: resource.Mapping.Resource,
+			})
+		}
+
+		if err := c.ResourcesWaiter.WaitUntilDeleted(context.Background(), specs, opts.WaitTimeout); err != nil {
+			return nil, []error{fmt.Errorf("waiting until resources are deleted failed: %s", err)}
+		}
 	}
 
 	return res, nil
