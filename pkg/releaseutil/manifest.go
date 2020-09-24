@@ -53,6 +53,8 @@ func SplitManifests(bigFile string) map[string]string {
 		}
 
 		d = strings.TrimSpace(d)
+		d += "\n"
+
 		res[fmt.Sprintf(tpl, count)] = d
 		count = count + 1
 	}
