@@ -53,6 +53,7 @@ func newTemplateCmd(cfg *action.Configuration, out io.Writer) *cobra.Command {
 
 type TemplateCmdOptions struct {
 	PostRenderer postrender.PostRenderer
+	ValueOpts    *values.Options
 }
 
 func NewTemplateCmd(cfg *action.Configuration, out io.Writer, opts TemplateCmdOptions) (*cobra.Command, *action.Install) {
@@ -74,6 +75,12 @@ func NewTemplateCmd(cfg *action.Configuration, out io.Writer, opts TemplateCmdOp
 		RunE: func(_ *cobra.Command, args []string) error {
 			if opts.PostRenderer != nil {
 				client.PostRenderer = opts.PostRenderer
+			}
+			if opts.ValueOpts != nil {
+				valueOpts.ValueFiles = append(valueOpts.ValueFiles, opts.ValueOpts.ValueFiles...)
+				valueOpts.StringValues = append(valueOpts.StringValues, opts.ValueOpts.StringValues...)
+				valueOpts.Values = append(valueOpts.Values, opts.ValueOpts.Values...)
+				valueOpts.FileValues = append(valueOpts.FileValues, opts.ValueOpts.FileValues...)
 			}
 			client.DryRun = true
 			client.ReleaseName = "RELEASE-NAME"
