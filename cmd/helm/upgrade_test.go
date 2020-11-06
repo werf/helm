@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package main
+package helm_v3
 
 import (
 	"fmt"
@@ -45,7 +45,7 @@ func TestUpgradeCmd(t *testing.T) {
 	if err := chartutil.SaveDir(cfile, tmpChart); err != nil {
 		t.Fatalf("Error creating chart for upgrade: %v", err)
 	}
-	ch, err := loader.Load(chartPath)
+	ch, err := loader.Load(chartPath, loader.LoadOptions{})
 	if err != nil {
 		t.Fatalf("Error loading chart: %v", err)
 	}
@@ -60,7 +60,7 @@ func TestUpgradeCmd(t *testing.T) {
 	if err := chartutil.SaveDir(cfile, tmpChart); err != nil {
 		t.Fatalf("Error creating chart: %v", err)
 	}
-	ch, err = loader.Load(chartPath)
+	ch, err = loader.Load(chartPath, loader.LoadOptions{})
 	if err != nil {
 		t.Fatalf("Error loading updated chart: %v", err)
 	}
@@ -72,7 +72,7 @@ func TestUpgradeCmd(t *testing.T) {
 		t.Fatalf("Error creating chart: %v", err)
 	}
 	var ch2 *chart.Chart
-	ch2, err = loader.Load(chartPath)
+	ch2, err = loader.Load(chartPath, loader.LoadOptions{})
 	if err != nil {
 		t.Fatalf("Error loading updated chart: %v", err)
 	}
@@ -362,7 +362,7 @@ func prepareMockRelease(releaseName string, t *testing.T) (func(n string, v int,
 	if err := chartutil.SaveDir(cfile, tmpChart); err != nil {
 		t.Fatalf("Error creating chart for upgrade: %v", err)
 	}
-	ch, err := loader.Load(chartPath)
+	ch, err := loader.Load(chartPath, loader.LoadOptions{})
 	if err != nil {
 		t.Fatalf("Error loading chart: %v", err)
 	}

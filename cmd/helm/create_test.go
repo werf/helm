@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package main
+package helm_v3
 
 import (
 	"fmt"
@@ -48,7 +48,7 @@ func TestCreateCmd(t *testing.T) {
 		t.Fatalf("chart is not directory")
 	}
 
-	c, err := loader.LoadDir(cname)
+	c, err := loader.LoadDir(cname, loader.LoadOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +94,7 @@ func TestCreateStarterCmd(t *testing.T) {
 		t.Fatalf("chart is not directory")
 	}
 
-	c, err := loader.LoadDir(cname)
+	c, err := loader.LoadDir(cname, loader.LoadOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,7 +162,7 @@ func TestCreateStarterAbsoluteCmd(t *testing.T) {
 		t.Fatalf("chart is not directory")
 	}
 
-	c, err := loader.LoadDir(cname)
+	c, err := loader.LoadDir(cname, loader.LoadOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}

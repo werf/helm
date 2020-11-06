@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package main
+package helm_v3
 
 import (
 	"bytes"
@@ -24,6 +24,10 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"helm.sh/helm/v3/pkg/postrender"
+
+	"helm.sh/helm/v3/pkg/chart/loader"
 
 	"github.com/spf13/cobra"
 
@@ -44,6 +48,17 @@ faked locally. Additionally, none of the server-side testing of chart validity
 `
 
 func newTemplateCmd(cfg *action.Configuration, out io.Writer) *cobra.Command {
+	cmd, _ := NewTemplateCmd(cfg, out, TemplateCmdOptions{})
+	return cmd
+}
+
+type TemplateCmdOptions struct {
+	LoadOptions  loader.LoadOptions
+	PostRenderer postrender.PostRenderer
+	ValueOpts    *values.Options
+}
+
+func NewTemplateCmd(cfg *action.Configuration, out io.Writer, opts TemplateCmdOptions) (*cobra.Command, *action.Install) {
 	var validate bool
 	var includeCrds bool
 	client := action.NewInstall(cfg)
@@ -57,13 +72,22 @@ func newTemplateCmd(cfg *action.Configuration, out io.Writer) *cobra.Command {
 		Long:  templateDesc,
 		Args:  require.MinimumNArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
+			if opts.PostRenderer != nil {
+				client.PostRenderer = opts.PostRenderer
+			}
+			if opts.ValueOpts != nil {
+				valueOpts.ValueFiles = append(valueOpts.ValueFiles, opts.ValueOpts.ValueFiles...)
+				valueOpts.StringValues = append(valueOpts.StringValues, opts.ValueOpts.StringValues...)
+				valueOpts.Values = append(valueOpts.Values, opts.ValueOpts.Values...)
+				valueOpts.FileValues = append(valueOpts.FileValues, opts.ValueOpts.FileValues...)
+			}
 			client.DryRun = true
 			client.ReleaseName = "RELEASE-NAME"
 			client.Replace = true // Skip the name check
 			client.ClientOnly = !validate
 			client.APIVersions = chartutil.VersionSet(extraAPIs)
 			client.IncludeCRDs = includeCrds
-			rel, err := runInstall(args, client, valueOpts, out)
+			rel, err := runInstall(args, client, valueOpts, out, opts.LoadOptions)
 
 			if err != nil && !settings.Debug {
 				if rel != nil {
@@ -152,5 +176,5 @@ func newTemplateCmd(cfg *action.Configuration, out io.Writer) *cobra.Command {
 	f.BoolVar(&client.UseReleaseName, "release-name", false, "use release name in the output-dir path.")
 	bindPostRenderFlag(cmd, &client.PostRenderer)
 
-	return cmd
+	return cmd, client
 }

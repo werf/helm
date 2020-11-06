@@ -14,12 +14,14 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package main
+package helm_v3
 
 import (
 	"fmt"
 	"io"
 	"time"
+
+	"helm.sh/helm/v3/pkg/postrender"
 
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
@@ -104,6 +106,21 @@ charts in a repository, use 'helm search'.
 `
 
 func newInstallCmd(cfg *action.Configuration, out io.Writer) *cobra.Command {
+	cmd, _ := NewInstallCmd(cfg, out, InstallCmdOptions{})
+	return cmd
+}
+
+type InstallCmdOptions struct {
+	LoadOptions     loader.LoadOptions
+	PostRenderer    postrender.PostRenderer
+	ValueOpts       *values.Options
+	CreateNamespace *bool
+	Wait            *bool
+	Atomic          *bool
+	Timeout         *time.Duration
+}
+
+func NewInstallCmd(cfg *action.Configuration, out io.Writer, opts InstallCmdOptions) (*cobra.Command, *action.Install) {
 	client := action.NewInstall(cfg)
 	valueOpts := &values.Options{}
 	var outfmt output.Format
@@ -114,7 +131,29 @@ func newInstallCmd(cfg *action.Configuration, out io.Writer) *cobra.Command {
 		Long:  installDesc,
 		Args:  require.MinimumNArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
-			rel, err := runInstall(args, client, valueOpts, out)
+			if opts.PostRenderer != nil {
+				client.PostRenderer = opts.PostRenderer
+			}
+			if opts.ValueOpts != nil {
+				valueOpts.ValueFiles = append(valueOpts.ValueFiles, opts.ValueOpts.ValueFiles...)
+				valueOpts.StringValues = append(valueOpts.StringValues, opts.ValueOpts.StringValues...)
+				valueOpts.Values = append(valueOpts.Values, opts.ValueOpts.Values...)
+				valueOpts.FileValues = append(valueOpts.FileValues, opts.ValueOpts.FileValues...)
+			}
+			if opts.CreateNamespace != nil {
+				client.CreateNamespace = *opts.CreateNamespace
+			}
+			if opts.Wait != nil {
+				client.Wait = *opts.Wait
+			}
+			if opts.Atomic != nil {
+				client.Atomic = *opts.Atomic
+			}
+			if opts.Timeout != nil {
+				client.Timeout = *opts.Timeout
+			}
+
+			rel, err := runInstall(args, client, valueOpts, out, opts.LoadOptions)
 			if err != nil {
 				return err
 			}
@@ -132,7 +171,7 @@ func newInstallCmd(cfg *action.Configuration, out io.Writer) *cobra.Command {
 	bindOutputFlag(cmd, &outfmt)
 	bindPostRenderFlag(cmd, &client.PostRenderer)
 
-	return cmd
+	return cmd, client
 }
 
 func addInstallFlags(f *pflag.FlagSet, client *action.Install, valueOpts *values.Options) {
@@ -155,7 +194,7 @@ func addInstallFlags(f *pflag.FlagSet, client *action.Install, valueOpts *values
 	addChartPathOptionsFlags(f, &client.ChartPathOptions)
 }
 
-func runInstall(args []string, client *action.Install, valueOpts *values.Options, out io.Writer) (*release.Release, error) {
+func runInstall(args []string, client *action.Install, valueOpts *values.Options, out io.Writer, loadOpts loader.LoadOptions) (*release.Release, error) {
 	debug("Original chart version: %q", client.Version)
 	if client.Version == "" && client.Devel {
 		debug("setting version to >0.0.0-0")
@@ -182,7 +221,7 @@ func runInstall(args []string, client *action.Install, valueOpts *values.Options
 	}
 
 	// Check chart dependencies to make sure all are present in /charts
-	chartRequested, err := loader.Load(cp)
+	chartRequested, err := loader.Load(cp, loadOpts)
 	if err != nil {
 		return nil, err
 	}
@@ -216,7 +255,7 @@ func runInstall(args []string, client *action.Install, valueOpts *values.Options
 					return nil, err
 				}
 				// Reload the chart with the updated Chart.lock file.
-				if chartRequested, err = loader.Load(cp); err != nil {
+				if chartRequested, err = loader.Load(cp, loadOpts); err != nil {
 					return nil, errors.Wrap(err, "failed reloading chart after repo update")
 				}
 			} else {
