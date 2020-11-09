@@ -98,7 +98,7 @@ func (s *ReleaseServer) prepareUpdate(req *services.UpdateReleaseRequest) (*rele
 	// pessimistic lock.
 	sc := lastRelease.Info.Status.Code
 	if sc == release.Status_PENDING_INSTALL || sc == release.Status_PENDING_UPGRADE || sc == release.Status_PENDING_ROLLBACK {
-		return nil, nil, errPending
+		//return nil, nil, errPending
 	}
 
 	// Increment revision count. This is passed to templates, and also stored on
