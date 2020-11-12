@@ -23,6 +23,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"helm.sh/helm/v3/pkg/cli"
+
 	"github.com/pkg/errors"
 	"sigs.k8s.io/yaml"
 
@@ -32,6 +34,9 @@ import (
 type LoadOptions struct {
 	ChartExtender               chart.ChartExtender
 	SubchartExtenderFactoryFunc func() chart.ChartExtender
+	LoadDirFunc                 func(dir string) ([]*BufferedFile, error)
+	LocateChartFunc             func(name string, settings *cli.EnvSettings) (string, error)
+	ReadFileFunc                func(filePath string) ([]byte, error)
 }
 
 // ChartLoader loads a chart.
