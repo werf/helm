@@ -168,7 +168,13 @@ func NewUpgradeCmd(cfg *action.Configuration, out io.Writer, opts UpgradeCmdOpti
 				client.Version = ">0.0.0-0"
 			}
 
-			chartPath, err := client.ChartPathOptions.LocateChart(args[1], settings)
+			var chartPath string
+			var err error
+			if opts.LoadOptions.LocateChartFunc != nil {
+				chartPath, err = opts.LoadOptions.LocateChartFunc(args[1], settings)
+			} else {
+				chartPath, err = client.ChartPathOptions.LocateChart(args[1], settings)
+			}
 			if err != nil {
 				return err
 			}
