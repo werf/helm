@@ -67,6 +67,15 @@ func LoadDir(dir string, opts LoadOptions) (*chart.Chart, error) {
 	files := []*BufferedFile{}
 	topdir += string(filepath.Separator)
 
+	if opts.FilesLoader != nil {
+		if res, err := opts.FilesLoader(dir); err != nil {
+			return nil, fmt.Errorf("unable to load files from dir %s: %s", dir, err)
+		} else {
+			files = res
+		}
+		return LoadFiles(files, opts)
+	}
+
 	walk := func(name string, fi os.FileInfo, err error) error {
 		n := strings.TrimPrefix(name, topdir)
 		if n == "" {

@@ -32,6 +32,7 @@ import (
 type LoadOptions struct {
 	ChartExtender               chart.ChartExtender
 	SubchartExtenderFactoryFunc func() chart.ChartExtender
+	FilesLoader                 func(dir string) ([]*BufferedFile, error)
 }
 
 // ChartLoader loads a chart.
