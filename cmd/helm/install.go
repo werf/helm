@@ -220,9 +220,17 @@ func runInstall(args []string, client *action.Install, valueOpts *values.Options
 	}
 	client.ReleaseName = name
 
-	cp, err := client.ChartPathOptions.LocateChart(chart, settings)
-	if err != nil {
-		return nil, err
+	var cp string
+	if loadOpts.LocateChartFunc != nil {
+		cp, err = loadOpts.LocateChartFunc(chart, settings)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		cp, err = client.ChartPathOptions.LocateChart(chart, settings)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	debug("CHART PATH: %s\n", cp)

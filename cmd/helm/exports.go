@@ -27,7 +27,6 @@ var (
 	NewPluginCmd     = newPluginCmd
 	NewPullCmd       = newPullCmd
 	NewSearchCmd     = newSearchCmd
-	NewShowCmd       = newShowCmd
 	NewStatusCmd     = newStatusCmd
 	NewTestCmd       = newReleaseTestCmd
 	NewVerifyCmd     = newVerifyCmd
@@ -38,6 +37,7 @@ var (
 	//NewTemplateCmd   = newTemplateCmd
 	//NewInstallCmd    = newInstallCmd
 	//NewUpgradeCmd    = newUpgradeCmd
+	//NewShowCmd       = newShowCmd
 
 	LoadPlugins = loadPlugins
 )
