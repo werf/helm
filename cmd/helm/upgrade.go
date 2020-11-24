@@ -179,7 +179,7 @@ func NewUpgradeCmd(cfg *action.Configuration, out io.Writer, opts UpgradeCmdOpti
 				return err
 			}
 
-			vals, err := valueOpts.MergeValues(getter.All(settings))
+			vals, err := valueOpts.MergeValues(getter.All(settings), opts.LoadOptions.ReadFileFunc)
 			if err != nil {
 				return err
 			}

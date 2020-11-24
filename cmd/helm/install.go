@@ -236,7 +236,7 @@ func runInstall(args []string, client *action.Install, valueOpts *values.Options
 	debug("CHART PATH: %s\n", cp)
 
 	p := getter.All(settings)
-	vals, err := valueOpts.MergeValues(p)
+	vals, err := valueOpts.MergeValues(p, loadOpts.ReadFileFunc)
 	if err != nil {
 		return nil, err
 	}
