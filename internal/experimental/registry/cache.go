@@ -142,7 +142,7 @@ func (cache *Cache) FetchReference(ref *Reference) (*CacheRefSummary, error) {
 			if err != nil {
 				return &r, err
 			}
-			ch, err := loader.LoadArchive(bytes.NewBuffer(contentBytes), loader.LoadOptions{})
+			ch, err := loader.LoadArchive(bytes.NewBuffer(contentBytes))
 			if err != nil {
 				return &r, err
 			}

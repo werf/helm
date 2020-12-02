@@ -21,12 +21,11 @@ import (
 	"io"
 	"log"
 
-	"helm.sh/helm/v3/pkg/chart/loader"
-
 	"github.com/spf13/cobra"
 
 	"helm.sh/helm/v3/cmd/helm/require"
 	"helm.sh/helm/v3/pkg/action"
+	"helm.sh/helm/v3/pkg/chart/loader"
 )
 
 const showDesc = `
@@ -54,14 +53,6 @@ of the README file
 `
 
 func newShowCmd(out io.Writer) *cobra.Command {
-	return NewShowCmd(out, ShowCmdOptions{})
-}
-
-type ShowCmdOptions struct {
-	LoadOptions loader.LoadOptions
-}
-
-func NewShowCmd(out io.Writer, opts ShowCmdOptions) *cobra.Command {
 	client := action.NewShow(action.ShowAll)
 
 	showCommand := &cobra.Command{
@@ -89,7 +80,7 @@ func NewShowCmd(out io.Writer, opts ShowCmdOptions) *cobra.Command {
 		ValidArgsFunction: validArgsFunc,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client.OutputFormat = action.ShowAll
-			output, err := runShow(args, client, opts.LoadOptions)
+			output, err := runShow(args, client)
 			if err != nil {
 				return err
 			}
@@ -106,7 +97,7 @@ func NewShowCmd(out io.Writer, opts ShowCmdOptions) *cobra.Command {
 		ValidArgsFunction: validArgsFunc,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client.OutputFormat = action.ShowValues
-			output, err := runShow(args, client, opts.LoadOptions)
+			output, err := runShow(args, client)
 			if err != nil {
 				return err
 			}
@@ -123,7 +114,7 @@ func NewShowCmd(out io.Writer, opts ShowCmdOptions) *cobra.Command {
 		ValidArgsFunction: validArgsFunc,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client.OutputFormat = action.ShowChart
-			output, err := runShow(args, client, opts.LoadOptions)
+			output, err := runShow(args, client)
 			if err != nil {
 				return err
 			}
@@ -140,7 +131,7 @@ func NewShowCmd(out io.Writer, opts ShowCmdOptions) *cobra.Command {
 		ValidArgsFunction: validArgsFunc,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client.OutputFormat = action.ShowReadme
-			output, err := runShow(args, client, opts.LoadOptions)
+			output, err := runShow(args, client)
 			if err != nil {
 				return err
 			}
@@ -179,7 +170,7 @@ func addShowFlags(subCmd *cobra.Command, client *action.Show) {
 	}
 }
 
-func runShow(args []string, client *action.Show, loadOpts loader.LoadOptions) (string, error) {
+func runShow(args []string, client *action.Show) (string, error) {
 	debug("Original chart version: %q", client.Version)
 	if client.Version == "" && client.Devel {
 		debug("setting version to >0.0.0-0")
@@ -188,8 +179,8 @@ func runShow(args []string, client *action.Show, loadOpts loader.LoadOptions) (s
 
 	var cp string
 	var err error
-	if loadOpts.LocateChartFunc != nil {
-		cp, err = loadOpts.LocateChartFunc(args[0], settings)
+	if loader.GlobalLoadOptions.LocateChartFunc != nil {
+		cp, err = loader.GlobalLoadOptions.LocateChartFunc(args[0], settings)
 	} else {
 		cp, err = client.ChartPathOptions.LocateChart(args[0], settings)
 	}
