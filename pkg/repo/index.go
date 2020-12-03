@@ -285,7 +285,7 @@ func IndexDirectory(dir, baseURL string) (*IndexFile, error) {
 			parentURL = path.Join(baseURL, parentDir)
 		}
 
-		c, err := loader.Load(arch, loader.LoadOptions{})
+		c, err := loader.Load(arch)
 		if err != nil {
 			// Assume this is not a chart.
 			continue

@@ -31,7 +31,7 @@ import (
 //
 // See https://github.com/helm/helm/issues/7910
 func Dependencies(linter *support.Linter) {
-	c, err := loader.LoadDir(linter.ChartDir, loader.LoadOptions{})
+	c, err := loader.LoadDir(linter.ChartDir)
 	if !linter.RunLinterRule(support.ErrorSev, "", validateChartFormat(err)) {
 		return
 	}

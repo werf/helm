@@ -32,12 +32,12 @@ var (
 	NewVerifyCmd     = newVerifyCmd
 	NewVersionCmd    = newVersionCmd
 	NewChartCmd      = newChartCmd
+	NewShowCmd       = newShowCmd
 
 	// NOTE: following commands has additional options param and defined in corresponding command files
 	//NewTemplateCmd   = newTemplateCmd
 	//NewInstallCmd    = newInstallCmd
 	//NewUpgradeCmd    = newUpgradeCmd
-	//NewShowCmd       = newShowCmd
 
 	LoadPlugins = loadPlugins
 )

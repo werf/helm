@@ -29,8 +29,6 @@ import (
 
 	"helm.sh/helm/v3/pkg/postrender"
 
-	"helm.sh/helm/v3/pkg/chart/loader"
-
 	"github.com/spf13/cobra"
 
 	"helm.sh/helm/v3/cmd/helm/require"
@@ -54,7 +52,6 @@ func newTemplateCmd(cfg *action.Configuration, out io.Writer) *cobra.Command {
 }
 
 type TemplateCmdOptions struct {
-	LoadOptions  loader.LoadOptions
 	PostRenderer postrender.PostRenderer
 	ValueOpts    *values.Options
 }
@@ -91,7 +88,7 @@ func NewTemplateCmd(cfg *action.Configuration, out io.Writer, opts TemplateCmdOp
 			client.ClientOnly = !validate
 			client.APIVersions = chartutil.VersionSet(extraAPIs)
 			client.IncludeCRDs = includeCrds
-			rel, err := runInstall(args, client, valueOpts, out, opts.LoadOptions)
+			rel, err := runInstall(args, client, valueOpts, out)
 
 			if err != nil && !settings.Debug {
 				if rel != nil {

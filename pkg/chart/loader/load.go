@@ -39,9 +39,11 @@ type LoadOptions struct {
 	ReadFileFunc                func(filePath string) ([]byte, error)
 }
 
+var GlobalLoadOptions *LoadOptions
+
 // ChartLoader loads a chart.
 type ChartLoader interface {
-	Load(opts LoadOptions) (*chart.Chart, error)
+	Load(options LoadOptions) (*chart.Chart, error)
 }
 
 // Loader returns a new ChartLoader appropriate for the given chart name
@@ -64,7 +66,11 @@ func Loader(name string) (ChartLoader, error) {
 //
 // If a .helmignore file is present, the directory loader will skip loading any files
 // matching it.
-func Load(name string, opts LoadOptions) (*chart.Chart, error) {
+func Load(name string) (*chart.Chart, error) {
+	return LoadWithOptions(name, *GlobalLoadOptions)
+}
+
+func LoadWithOptions(name string, opts LoadOptions) (*chart.Chart, error) {
 	l, err := Loader(name)
 	if err != nil {
 		return nil, err
@@ -79,10 +85,10 @@ type BufferedFile struct {
 }
 
 // LoadFiles loads from in-memory files.
-func LoadFiles(files []*BufferedFile, opts LoadOptions) (*chart.Chart, error) {
+func LoadFiles(files []*BufferedFile, options LoadOptions) (*chart.Chart, error) {
 	c := new(chart.Chart)
-	if opts.ChartExtender != nil {
-		c.ChartExtender = opts.ChartExtender
+	if options.ChartExtender != nil {
+		c.ChartExtender = options.ChartExtender
 		if err := c.ChartExtender.SetupChart(c); err != nil {
 			return c, err
 		}
@@ -185,12 +191,13 @@ func LoadFiles(files []*BufferedFile, opts LoadOptions) (*chart.Chart, error) {
 				return c, errors.Errorf("error unpacking tar in %s: expected %s, got %s", c.Name(), n, file.Name)
 			}
 			// Untar the chart and add to c.Dependencies
-			var subchartOpts LoadOptions
-			if opts.SubchartExtenderFactoryFunc != nil {
-				subchartOpts.ChartExtender = opts.SubchartExtenderFactoryFunc()
-				subchartOpts.SubchartExtenderFactoryFunc = opts.SubchartExtenderFactoryFunc
+			var subchartOptions LoadOptions
+			if options.SubchartExtenderFactoryFunc != nil {
+				subchartOptions.ChartExtender = options.SubchartExtenderFactoryFunc()
+				subchartOptions.SubchartExtenderFactoryFunc = options.SubchartExtenderFactoryFunc
 			}
-			sc, err = LoadArchive(bytes.NewBuffer(file.Data), subchartOpts)
+			//FIXME: inherit other options!
+			sc, err = LoadArchiveWithOptions(bytes.NewBuffer(file.Data), subchartOptions)
 		default:
 			// We have to trim the prefix off of every file, and ignore any file
 			// that is in charts/, but isn't actually a chart.
@@ -204,12 +211,12 @@ func LoadFiles(files []*BufferedFile, opts LoadOptions) (*chart.Chart, error) {
 				buff = append(buff, f)
 			}
 
-			var subchartOpts LoadOptions
-			if opts.SubchartExtenderFactoryFunc != nil {
-				subchartOpts.ChartExtender = opts.SubchartExtenderFactoryFunc()
-				subchartOpts.SubchartExtenderFactoryFunc = opts.SubchartExtenderFactoryFunc
+			var subchartOptions LoadOptions
+			if options.SubchartExtenderFactoryFunc != nil {
+				subchartOptions.ChartExtender = options.SubchartExtenderFactoryFunc()
+				subchartOptions.SubchartExtenderFactoryFunc = options.SubchartExtenderFactoryFunc
 			}
-			sc, err = LoadFiles(buff, subchartOpts)
+			sc, err = LoadFiles(buff, subchartOptions)
 		}
 
 		if err != nil {

@@ -68,7 +68,6 @@ func newUpgradeCmd(cfg *action.Configuration, out io.Writer) *cobra.Command {
 }
 
 type UpgradeCmdOptions struct {
-	LoadOptions     loader.LoadOptions
 	PostRenderer    postrender.PostRenderer
 	ValueOpts       *values.Options
 	CreateNamespace *bool
@@ -153,7 +152,7 @@ func NewUpgradeCmd(cfg *action.Configuration, out io.Writer, opts UpgradeCmdOpti
 					instClient.SubNotes = client.SubNotes
 					instClient.Description = client.Description
 
-					rel, err := runInstall(args, instClient, valueOpts, out, opts.LoadOptions)
+					rel, err := runInstall(args, instClient, valueOpts, out)
 					if err != nil {
 						return err
 					}
@@ -170,8 +169,8 @@ func NewUpgradeCmd(cfg *action.Configuration, out io.Writer, opts UpgradeCmdOpti
 
 			var chartPath string
 			var err error
-			if opts.LoadOptions.LocateChartFunc != nil {
-				chartPath, err = opts.LoadOptions.LocateChartFunc(args[1], settings)
+			if loader.GlobalLoadOptions.LocateChartFunc != nil {
+				chartPath, err = loader.GlobalLoadOptions.LocateChartFunc(args[1], settings)
 			} else {
 				chartPath, err = client.ChartPathOptions.LocateChart(args[1], settings)
 			}
@@ -179,13 +178,13 @@ func NewUpgradeCmd(cfg *action.Configuration, out io.Writer, opts UpgradeCmdOpti
 				return err
 			}
 
-			vals, err := valueOpts.MergeValues(getter.All(settings), opts.LoadOptions.ReadFileFunc)
+			vals, err := valueOpts.MergeValues(getter.All(settings), loader.GlobalLoadOptions.ReadFileFunc)
 			if err != nil {
 				return err
 			}
 
 			// Check chart dependencies to make sure all are present in /charts
-			ch, err := loader.Load(chartPath, opts.LoadOptions)
+			ch, err := loader.Load(chartPath)
 			if err != nil {
 				return err
 			}

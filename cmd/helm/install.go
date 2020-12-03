@@ -111,7 +111,6 @@ func newInstallCmd(cfg *action.Configuration, out io.Writer) *cobra.Command {
 }
 
 type InstallCmdOptions struct {
-	LoadOptions     loader.LoadOptions
 	PostRenderer    postrender.PostRenderer
 	ValueOpts       *values.Options
 	CreateNamespace *bool
@@ -156,7 +155,7 @@ func NewInstallCmd(cfg *action.Configuration, out io.Writer, opts InstallCmdOpti
 				client.Timeout = *opts.Timeout
 			}
 
-			rel, err := runInstall(args, client, valueOpts, out, opts.LoadOptions)
+			rel, err := runInstall(args, client, valueOpts, out)
 			if err != nil {
 				return err
 			}
@@ -207,7 +206,7 @@ func addInstallFlags(cmd *cobra.Command, f *pflag.FlagSet, client *action.Instal
 	}
 }
 
-func runInstall(args []string, client *action.Install, valueOpts *values.Options, out io.Writer, loadOpts loader.LoadOptions) (*release.Release, error) {
+func runInstall(args []string, client *action.Install, valueOpts *values.Options, out io.Writer) (*release.Release, error) {
 	debug("Original chart version: %q", client.Version)
 	if client.Version == "" && client.Devel {
 		debug("setting version to >0.0.0-0")
@@ -221,8 +220,8 @@ func runInstall(args []string, client *action.Install, valueOpts *values.Options
 	client.ReleaseName = name
 
 	var cp string
-	if loadOpts.LocateChartFunc != nil {
-		cp, err = loadOpts.LocateChartFunc(chart, settings)
+	if loader.GlobalLoadOptions.LocateChartFunc != nil {
+		cp, err = loader.GlobalLoadOptions.LocateChartFunc(chart, settings)
 		if err != nil {
 			return nil, err
 		}
@@ -236,13 +235,13 @@ func runInstall(args []string, client *action.Install, valueOpts *values.Options
 	debug("CHART PATH: %s\n", cp)
 
 	p := getter.All(settings)
-	vals, err := valueOpts.MergeValues(p, loadOpts.ReadFileFunc)
+	vals, err := valueOpts.MergeValues(p, loader.GlobalLoadOptions.ReadFileFunc)
 	if err != nil {
 		return nil, err
 	}
 
 	// Check chart dependencies to make sure all are present in /charts
-	chartRequested, err := loader.Load(cp, loadOpts)
+	chartRequested, err := loader.Load(cp)
 	if err != nil {
 		return nil, err
 	}
@@ -275,7 +274,7 @@ func runInstall(args []string, client *action.Install, valueOpts *values.Options
 					return nil, err
 				}
 				// Reload the chart with the updated Chart.lock file.
-				if chartRequested, err = loader.Load(cp, loadOpts); err != nil {
+				if chartRequested, err = loader.Load(cp); err != nil {
 					return nil, errors.Wrap(err, "failed reloading chart after repo update")
 				}
 			} else {
