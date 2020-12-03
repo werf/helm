@@ -150,6 +150,12 @@ func (u *Uninstall) Run(name string) (*release.UninstallReleaseResponse, error) 
 			errs = append(errs, errors.Wrap(err, "uninstall: Failed to purge the release"))
 		}
 
+		if u.DeleteNamespace {
+			if err := u.cfg.KubeClient.DeleteNamespace(context.Background(), rel.Namespace, kube.DeleteOptions{Wait: true, WaitTimeout: u.Timeout}); err != nil {
+				errs = append(errs, errors.Wrap(err, fmt.Sprintf("unable to delete namespace %s", rel.Namespace)))
+			}
+		}
+
 		// Return the errors that occurred while deleting the release, if any
 		if len(errs) > 0 {
 			return res, errors.Errorf("uninstallation completed with %d error(s): %s", len(errs), joinErrors(errs))
@@ -160,12 +166,6 @@ func (u *Uninstall) Run(name string) (*release.UninstallReleaseResponse, error) 
 
 	if err := u.cfg.Releases.Update(rel); err != nil {
 		u.cfg.Log("uninstall: Failed to store updated release: %s", err)
-	}
-
-	if u.DeleteNamespace {
-		if err := u.cfg.KubeClient.DeleteNamespace(context.Background(), rel.Namespace, kube.DeleteOptions{Wait: true, WaitTimeout: u.Timeout}); err != nil {
-			errs = append(errs, errors.Wrap(err, fmt.Sprintf("unable to delete namespace %s", rel.Namespace)))
-		}
 	}
 
 	if len(errs) > 0 {
