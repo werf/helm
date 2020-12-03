@@ -37,14 +37,18 @@ var utf8bom = []byte{0xEF, 0xBB, 0xBF}
 type DirLoader string
 
 // Load loads the chart
-func (l DirLoader) Load() (*chart.Chart, error) {
-	return LoadDir(string(l))
+func (l DirLoader) Load(options LoadOptions) (*chart.Chart, error) {
+	return LoadDirWithOptions(string(l), options)
 }
 
 // LoadDir loads from a directory.
 //
 // This loads charts only from directories.
 func LoadDir(dir string) (*chart.Chart, error) {
+	return LoadDirWithOptions(dir, *GlobalLoadOptions)
+}
+
+func LoadDirWithOptions(dir string, options LoadOptions) (*chart.Chart, error) {
 	topdir, err := filepath.Abs(dir)
 	if err != nil {
 		return nil, err
@@ -66,6 +70,15 @@ func LoadDir(dir string) (*chart.Chart, error) {
 
 	files := []*BufferedFile{}
 	topdir += string(filepath.Separator)
+
+	if options.LoadDirFunc != nil {
+		if res, err := options.LoadDirFunc(dir); err != nil {
+			return nil, fmt.Errorf("unable to load files from dir %s: %s", dir, err)
+		} else {
+			files = res
+		}
+		return LoadFiles(files, options)
+	}
 
 	walk := func(name string, fi os.FileInfo, err error) error {
 		n := strings.TrimPrefix(name, topdir)
@@ -116,5 +129,5 @@ func LoadDir(dir string) (*chart.Chart, error) {
 		return c, err
 	}
 
-	return LoadFiles(files)
+	return LoadFiles(files, options)
 }

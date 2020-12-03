@@ -65,7 +65,7 @@ type Engine struct {
 // bar chart during render time.
 func (e Engine) Render(chrt *chart.Chart, values chartutil.Values) (map[string]string, error) {
 	tmap := allTemplates(chrt, values)
-	return e.render(tmap)
+	return e.render(tmap, chrt.ChartExtender)
 }
 
 // Render takes a chart, optional values, and value overrides, and attempts to
@@ -104,7 +104,7 @@ func warnWrap(warn string) string {
 }
 
 // initFunMap creates the Engine's FuncMap and adds context-specific functions.
-func (e Engine) initFunMap(t *template.Template, referenceTpls map[string]renderable) {
+func (e Engine) initFunMap(t *template.Template, referenceTpls map[string]renderable, extender chart.ChartExtender) {
 	funcMap := funcMap()
 	includedNames := make(map[string]int)
 
@@ -144,7 +144,7 @@ func (e Engine) initFunMap(t *template.Template, referenceTpls map[string]render
 			},
 		}
 
-		result, err := e.renderWithReferences(templates, referenceTpls)
+		result, err := e.renderWithReferences(templates, referenceTpls, extender)
 		if err != nil {
 			return "", errors.Wrapf(err, "error during tpl function execution for %q", tpl)
 		}
@@ -179,17 +179,21 @@ func (e Engine) initFunMap(t *template.Template, referenceTpls map[string]render
 		funcMap["lookup"] = NewLookupFunction(e.config)
 	}
 
+	if extender != nil {
+		extender.SetupTemplateFuncs(t, funcMap)
+	}
+
 	t.Funcs(funcMap)
 }
 
 // render takes a map of templates/values and renders them.
-func (e Engine) render(tpls map[string]renderable) (map[string]string, error) {
-	return e.renderWithReferences(tpls, tpls)
+func (e Engine) render(tpls map[string]renderable, extender chart.ChartExtender) (map[string]string, error) {
+	return e.renderWithReferences(tpls, tpls, extender)
 }
 
 // renderWithReferences takes a map of templates/values to render, and a map of
 // templates which can be referenced within them.
-func (e Engine) renderWithReferences(tpls, referenceTpls map[string]renderable) (rendered map[string]string, err error) {
+func (e Engine) renderWithReferences(tpls, referenceTpls map[string]renderable, extender chart.ChartExtender) (rendered map[string]string, err error) {
 	// Basically, what we do here is start with an empty parent template and then
 	// build up a list of templates -- one for each file. Once all of the templates
 	// have been parsed, we loop through again and execute every template.
@@ -211,7 +215,7 @@ func (e Engine) renderWithReferences(tpls, referenceTpls map[string]renderable) 
 		t.Option("missingkey=zero")
 	}
 
-	e.initFunMap(t, referenceTpls)
+	e.initFunMap(t, referenceTpls, extender)
 
 	// We want to parse the templates in a predictable order. The order favors
 	// higher-level (in file system) templates over deeply nested templates.
