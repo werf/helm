@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"k8s.io/apimachinery/pkg/runtime/schema"
+	corev1 "k8s.io/api/core/v1"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -21,11 +21,7 @@ func (c *Client) DeleteNamespace(ctx context.Context, namespace string, opts Del
 
 	if opts.Wait {
 		specs := []*ResourcesWaiterDeleteResourceSpec{
-			{ResourceName: namespace, Namespace: "", GroupVersionResource: schema.GroupVersionResource{
-				Group: "core",
-				Version: "v1",
-				Resource: "namespaces",
-			}},
+			{ResourceName: namespace, Namespace: "", GroupVersionResource: corev1.SchemeGroupVersion.WithResource("namespaces")},
 		}
 		if err := c.ResourcesWaiter.WaitUntilDeleted(context.Background(), specs, opts.WaitTimeout); err != nil {
 			return fmt.Errorf("waiting until namespace deleted failed: %s", err)
