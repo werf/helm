@@ -131,8 +131,10 @@ func (u *Uninstall) Run(name string) (*release.UninstallReleaseResponse, error) 
 		for _, r := range rels {
 			hooksFromAllReleases = append(hooksFromAllReleases, r.Hooks...)
 		}
-		if err := u.cfg.deleteHooks(hooksFromAllReleases); err != nil {
-			errs = append(errs, err)
+		if len(hooksFromAllReleases) > 0 {
+			if err := u.cfg.deleteHooks(hooksFromAllReleases); err != nil {
+				errs = append(errs, err)
+			}
 		}
 	}
 
