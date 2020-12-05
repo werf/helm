@@ -132,9 +132,21 @@ func (s *ReleaseServer) prepareUpdate(req *services.UpdateReleaseRequest) (*rele
 			Status:        &release.Status{Code: release.Status_PENDING_UPGRADE},
 			Description:   "Preparing upgrade", // This should be overwritten later.
 		},
-		Version:  revision,
-		Manifest: manifestDoc.String(),
-		Hooks:    hooks,
+		Version:                      revision,
+		Manifest:                     manifestDoc.String(),
+		Hooks:                        hooks,
+		ResourcesHasOwnerReleaseName: currentRelease.ResourcesHasOwnerReleaseName,
+	}
+
+	switch req.ThreeWayMergeMode {
+	case services.ThreeWayMergeMode_disabled:
+		updatedRelease.ThreeWayMergeEnabled = false
+	case services.ThreeWayMergeMode_enabled:
+		updatedRelease.ThreeWayMergeEnabled = true
+	case services.ThreeWayMergeMode_onlyNewReleases:
+		updatedRelease.ThreeWayMergeEnabled = currentRelease.ThreeWayMergeEnabled
+	default:
+		panic("non empty req.ThreeWayMergeMode required!")
 	}
 
 	if len(notesTxt) > 0 {
@@ -155,15 +167,16 @@ func (s *ReleaseServer) performUpdateForce(req *services.UpdateReleaseRequest) (
 	res := &services.UpdateReleaseResponse{}
 
 	newRelease, err := s.prepareRelease(&services.InstallReleaseRequest{
-		Chart:        req.Chart,
-		Values:       req.Values,
-		DryRun:       req.DryRun,
-		Name:         req.Name,
-		DisableHooks: req.DisableHooks,
-		Namespace:    oldRelease.Namespace,
-		ReuseName:    true,
-		Timeout:      req.Timeout,
-		Wait:         req.Wait,
+		Chart:             req.Chart,
+		Values:            req.Values,
+		DryRun:            req.DryRun,
+		Name:              req.Name,
+		DisableHooks:      req.DisableHooks,
+		Namespace:         oldRelease.Namespace,
+		ReuseName:         true,
+		Timeout:           req.Timeout,
+		Wait:              req.Wait,
+		ThreeWayMergeMode: req.ThreeWayMergeMode,
 	})
 	if err != nil {
 		s.Log("failed update prepare step: %s", err)
@@ -194,7 +207,7 @@ func (s *ReleaseServer) performUpdateForce(req *services.UpdateReleaseRequest) (
 
 	// pre-delete hooks
 	if !req.DisableHooks {
-		if err := s.execHook(oldRelease.Hooks, oldRelease.Name, oldRelease.Namespace, hooks.PreDelete, req.Timeout); err != nil {
+		if err := s.execHook(oldRelease.Hooks, oldRelease.Name, oldRelease.Namespace, hooks.PreDelete, req.Timeout, makeReleaseInfo(oldRelease)); err != nil {
 			return res, err
 		}
 	} else {
@@ -219,14 +232,14 @@ func (s *ReleaseServer) performUpdateForce(req *services.UpdateReleaseRequest) (
 
 	// post-delete hooks
 	if !req.DisableHooks {
-		if err := s.execHook(oldRelease.Hooks, oldRelease.Name, oldRelease.Namespace, hooks.PostDelete, req.Timeout); err != nil {
+		if err := s.execHook(oldRelease.Hooks, oldRelease.Name, oldRelease.Namespace, hooks.PostDelete, req.Timeout, makeReleaseInfo(oldRelease)); err != nil {
 			return res, err
 		}
 	}
 
 	// pre-install hooks
 	if !req.DisableHooks {
-		if err := s.execHook(newRelease.Hooks, newRelease.Name, newRelease.Namespace, hooks.PreInstall, req.Timeout); err != nil {
+		if err := s.execHook(newRelease.Hooks, newRelease.Name, newRelease.Namespace, hooks.PreInstall, req.Timeout, makeReleaseInfo(newRelease)); err != nil {
 			return res, err
 		}
 	}
@@ -243,7 +256,7 @@ func (s *ReleaseServer) performUpdateForce(req *services.UpdateReleaseRequest) (
 
 	// post-install hooks
 	if !req.DisableHooks {
-		if err := s.execHook(newRelease.Hooks, newRelease.Name, newRelease.Namespace, hooks.PostInstall, req.Timeout); err != nil {
+		if err := s.execHook(newRelease.Hooks, newRelease.Name, newRelease.Namespace, hooks.PostInstall, req.Timeout, makeReleaseInfo(newRelease)); err != nil {
 			msg := fmt.Sprintf("Release %q failed post-install: %s", newRelease.Name, err)
 			s.Log("warning: %s", msg)
 			newRelease.Info.Status.Code = release.Status_FAILED
@@ -275,7 +288,7 @@ func (s *ReleaseServer) performUpdate(originalRelease, updatedRelease *release.R
 
 	// pre-upgrade hooks
 	if !req.DisableHooks {
-		if err := s.execHook(updatedRelease.Hooks, updatedRelease.Name, updatedRelease.Namespace, hooks.PreUpgrade, req.Timeout); err != nil {
+		if err := s.execHook(updatedRelease.Hooks, updatedRelease.Name, updatedRelease.Namespace, hooks.PreUpgrade, req.Timeout, makeReleaseInfo(updatedRelease)); err != nil {
 			return res, err
 		}
 	} else {
@@ -293,7 +306,7 @@ func (s *ReleaseServer) performUpdate(originalRelease, updatedRelease *release.R
 
 	// post-upgrade hooks
 	if !req.DisableHooks {
-		if err := s.execHook(updatedRelease.Hooks, updatedRelease.Name, updatedRelease.Namespace, hooks.PostUpgrade, req.Timeout); err != nil {
+		if err := s.execHook(updatedRelease.Hooks, updatedRelease.Name, updatedRelease.Namespace, hooks.PostUpgrade, req.Timeout, makeReleaseInfo(updatedRelease)); err != nil {
 			return res, err
 		}
 	}

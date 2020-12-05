@@ -39,6 +39,9 @@ type Engine struct {
 	// FuncMap contains the template functions that will be passed to each
 	// render call. This may only be modified before the first call to Render.
 	FuncMap template.FuncMap
+
+	AlterFuncMapHookFunc func(t *template.Template, funcMap template.FuncMap) template.FuncMap
+
 	// If strict is enabled, template rendering will fail if a template references
 	// a value that was not passed in.
 	Strict bool
@@ -218,7 +221,11 @@ func (e *Engine) alterFuncMap(t *template.Template, referenceTpls map[string]ren
 		return result[templateName.(string)], nil
 	}
 
-	return funcMap
+	if e.AlterFuncMapHookFunc != nil {
+		return e.AlterFuncMapHookFunc(t, funcMap)
+	} else {
+		return funcMap
+	}
 }
 
 // render takes a map of templates/values and renders them.

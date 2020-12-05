@@ -36,7 +36,7 @@ const ApiVersionV1 = "v1" // nolint
 // UnmarshalChartfile takes raw Chart.yaml data and unmarshals it.
 func UnmarshalChartfile(data []byte) (*chart.Metadata, error) {
 	y := &chart.Metadata{}
-	err := yaml.Unmarshal(data, y)
+	err := yaml.UnmarshalStrict(data, y)
 	if err != nil {
 		return nil, err
 	}

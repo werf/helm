@@ -17,12 +17,13 @@ limitations under the License.
 package driver // import "k8s.io/helm/pkg/storage/driver"
 
 import (
+	"context"
 	"fmt"
 	"strconv"
 	"strings"
 	"time"
 
-	"k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	kblabels "k8s.io/apimachinery/pkg/labels"
@@ -63,7 +64,7 @@ func (cfgmaps *ConfigMaps) Name() string {
 // or error if not found.
 func (cfgmaps *ConfigMaps) Get(key string) (*rspb.Release, error) {
 	// fetch the configmap holding the release named by key
-	obj, err := cfgmaps.impl.Get(key, metav1.GetOptions{})
+	obj, err := cfgmaps.impl.Get(context.Background(), key, metav1.GetOptions{})
 	if err != nil {
 		if apierrors.IsNotFound(err) {
 			return nil, storageerrors.ErrReleaseNotFound(key)
@@ -73,7 +74,7 @@ func (cfgmaps *ConfigMaps) Get(key string) (*rspb.Release, error) {
 		return nil, err
 	}
 	// found the configmap, decode the base64 data string
-	r, err := decodeRelease(obj.Data["release"])
+	r, err := decodeRelease(obj.Data["release"], true, obj.Annotations)
 	if err != nil {
 		cfgmaps.Log("get: failed to decode data %q: %s", key, err)
 		return nil, err
@@ -89,7 +90,7 @@ func (cfgmaps *ConfigMaps) List(filter func(*rspb.Release) bool) ([]*rspb.Releas
 	lsel := kblabels.Set{"OWNER": "TILLER"}.AsSelector()
 	opts := metav1.ListOptions{LabelSelector: lsel.String()}
 
-	list, err := cfgmaps.impl.List(opts)
+	list, err := cfgmaps.impl.List(context.Background(), opts)
 	if err != nil {
 		cfgmaps.Log("list: failed to list: %s", err)
 		return nil, err
@@ -100,7 +101,7 @@ func (cfgmaps *ConfigMaps) List(filter func(*rspb.Release) bool) ([]*rspb.Releas
 	// iterate over the configmaps object list
 	// and decode each release
 	for _, item := range list.Items {
-		rls, err := decodeRelease(item.Data["release"])
+		rls, err := decodeRelease(item.Data["release"], true, item.Annotations)
 		if err != nil {
 			cfgmaps.Log("list: failed to decode release: %v: %s", item, err)
 			continue
@@ -125,7 +126,7 @@ func (cfgmaps *ConfigMaps) Query(labels map[string]string) ([]*rspb.Release, err
 
 	opts := metav1.ListOptions{LabelSelector: ls.AsSelector().String()}
 
-	list, err := cfgmaps.impl.List(opts)
+	list, err := cfgmaps.impl.List(context.Background(), opts)
 	if err != nil {
 		cfgmaps.Log("query: failed to query with labels: %s", err)
 		return nil, err
@@ -137,7 +138,7 @@ func (cfgmaps *ConfigMaps) Query(labels map[string]string) ([]*rspb.Release, err
 
 	var results []*rspb.Release
 	for _, item := range list.Items {
-		rls, err := decodeRelease(item.Data["release"])
+		rls, err := decodeRelease(item.Data["release"], true, item.Annotations)
 		if err != nil {
 			cfgmaps.Log("query: failed to decode release: %s", err)
 			continue
@@ -163,7 +164,7 @@ func (cfgmaps *ConfigMaps) Create(key string, rls *rspb.Release) error {
 		return err
 	}
 	// push the configmap object out into the kubiverse
-	if _, err := cfgmaps.impl.Create(obj); err != nil {
+	if _, err := cfgmaps.impl.Create(context.Background(), obj, metav1.CreateOptions{}); err != nil {
 		if apierrors.IsAlreadyExists(err) {
 			return storageerrors.ErrReleaseExists(key)
 		}
@@ -190,7 +191,7 @@ func (cfgmaps *ConfigMaps) Update(key string, rls *rspb.Release) error {
 		return err
 	}
 	// push the configmap object out into the kubiverse
-	_, err = cfgmaps.impl.Update(obj)
+	_, err = cfgmaps.impl.Update(context.Background(), obj, metav1.UpdateOptions{})
 	if err != nil {
 		cfgmaps.Log("update: failed to update: %s", err)
 		return err
@@ -210,7 +211,7 @@ func (cfgmaps *ConfigMaps) Delete(key string) (rls *rspb.Release, err error) {
 		return nil, err
 	}
 	// delete the release
-	if err = cfgmaps.impl.Delete(key, &metav1.DeleteOptions{}); err != nil {
+	if err = cfgmaps.impl.Delete(context.Background(), key, metav1.DeleteOptions{}); err != nil {
 		return rls, err
 	}
 	return rls, nil
@@ -248,11 +249,20 @@ func newConfigMapsObject(key string, rls *rspb.Release, lbs labels) (*v1.ConfigM
 	lbs.set("STATUS", rspb.Status_Code_name[int32(rls.Info.Status.Code)])
 	lbs.set("VERSION", strconv.Itoa(int(rls.Version)))
 
+	annots := make(map[string]string)
+	if rls.ThreeWayMergeEnabled {
+		annots[ThreeWayMergeEnabledAnnotation] = "true"
+	}
+	if rls.ResourcesHasOwnerReleaseName {
+		annots[ResourcesHasOwnerReleaseNameAnnotation] = "true"
+	}
+
 	// create and return configmap object
 	return &v1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:   key,
-			Labels: lbs.toMap(),
+			Name:        key,
+			Labels:      lbs.toMap(),
+			Annotations: annots,
 		},
 		Data: map[string]string{"release": s},
 	}, nil

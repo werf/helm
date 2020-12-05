@@ -17,6 +17,7 @@ limitations under the License.
 package installer // import "k8s.io/helm/cmd/helm/installer"
 
 import (
+	"context"
 	"fmt"
 	"io/ioutil"
 	"strings"
@@ -24,7 +25,7 @@ import (
 	"github.com/Masterminds/semver"
 	"github.com/ghodss/yaml"
 	appsv1 "k8s.io/api/apps/v1"
-	"k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 	extensionsv1beta1 "k8s.io/api/extensions/v1beta1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -60,7 +61,7 @@ func Install(client kubernetes.Interface, opts *Options) error {
 //
 // Returns an error if the command failed.
 func Upgrade(client kubernetes.Interface, opts *Options) error {
-	appsobj, err := client.AppsV1().Deployments(opts.Namespace).Get(deploymentName, metav1.GetOptions{})
+	appsobj, err := client.AppsV1().Deployments(opts.Namespace).Get(context.Background(), deploymentName, metav1.GetOptions{})
 	if err == nil {
 		// Can happen in two cases:
 		// 1. helm init inserted an apps/v1 Deployment up front in Kubernetes
@@ -70,7 +71,7 @@ func Upgrade(client kubernetes.Interface, opts *Options) error {
 		return upgradeAppsTillerDeployment(client, opts, appsobj)
 	}
 
-	extensionsobj, err := client.ExtensionsV1beta1().Deployments(opts.Namespace).Get(deploymentName, metav1.GetOptions{})
+	extensionsobj, err := client.ExtensionsV1beta1().Deployments(opts.Namespace).Get(context.Background(), deploymentName, metav1.GetOptions{})
 	if err == nil {
 		// User performed helm init against older version of kubernetes (Previous to 1.9)
 		return upgradeExtensionsTillerDeployment(client, opts, extensionsobj)
@@ -85,13 +86,13 @@ func upgradeAppsTillerDeployment(client kubernetes.Interface, opts *Options, obj
 		return err
 	}
 
-	if _, err := client.AppsV1().Deployments(opts.Namespace).Update(obj); err != nil {
+	if _, err := client.AppsV1().Deployments(opts.Namespace).Update(context.Background(), obj, metav1.UpdateOptions{}); err != nil {
 		return err
 	}
 
 	// If the service does not exist that would mean we are upgrading from a Tiller version
 	// that didn't deploy the service, so install it.
-	_, err := client.CoreV1().Services(opts.Namespace).Get(serviceName, metav1.GetOptions{})
+	_, err := client.CoreV1().Services(opts.Namespace).Get(context.Background(), serviceName, metav1.GetOptions{})
 	if apierrors.IsNotFound(err) {
 		return createService(client.CoreV1(), opts.Namespace)
 	}
@@ -105,13 +106,13 @@ func upgradeExtensionsTillerDeployment(client kubernetes.Interface, opts *Option
 		return err
 	}
 
-	if _, err := client.ExtensionsV1beta1().Deployments(opts.Namespace).Update(obj); err != nil {
+	if _, err := client.ExtensionsV1beta1().Deployments(opts.Namespace).Update(context.Background(), obj, metav1.UpdateOptions{}); err != nil {
 		return err
 	}
 
 	// If the service does not exist that would mean we are upgrading from a Tiller version
 	// that didn't deploy the service, so install it.
-	_, err := client.CoreV1().Services(opts.Namespace).Get(serviceName, metav1.GetOptions{})
+	_, err := client.CoreV1().Services(opts.Namespace).Get(context.Background(), serviceName, metav1.GetOptions{})
 	if apierrors.IsNotFound(err) {
 		return createService(client.CoreV1(), opts.Namespace)
 	}
@@ -166,7 +167,7 @@ func createDeployment(client appsv1client.DeploymentsGetter, opts *Options) erro
 	if err != nil {
 		return err
 	}
-	_, err = client.Deployments(obj.Namespace).Create(obj)
+	_, err = client.Deployments(obj.Namespace).Create(context.Background(), obj, metav1.CreateOptions{})
 	return err
 
 }
@@ -189,7 +190,7 @@ func Deployment(opts *Options) (*appsv1.Deployment, error) {
 // createService creates the Tiller service resource
 func createService(client corev1.ServicesGetter, namespace string) error {
 	obj := generateService(namespace)
-	_, err := client.Services(obj.Namespace).Create(obj)
+	_, err := client.Services(obj.Namespace).Create(context.Background(), obj, metav1.CreateOptions{})
 	return err
 }
 
@@ -378,7 +379,7 @@ func generateDeployment(opts *Options) (*appsv1.Deployment, error) {
 			return nil, fmt.Errorf("Error marshalling merged map to YAML: %s ", err)
 		}
 		// convert merged values back into deployment
-		err = yaml.Unmarshal(finalY, &dd)
+		err = yaml.UnmarshalStrict(finalY, &dd)
 		if err != nil {
 			return nil, fmt.Errorf("Error unmarshalling Values to Deployment manifest: %s ", err)
 		}
@@ -433,7 +434,7 @@ func createSecret(client corev1.SecretsGetter, opts *Options) error {
 	if err != nil {
 		return err
 	}
-	_, err = client.Secrets(o.Namespace).Create(o)
+	_, err = client.Secrets(o.Namespace).Create(context.Background(), o, metav1.CreateOptions{})
 	return err
 }
 

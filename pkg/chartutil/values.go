@@ -132,7 +132,7 @@ func tableLookup(v Values, simple string) (Values, error) {
 
 // ReadValues will parse YAML byte data into a Values.
 func ReadValues(data []byte) (vals Values, err error) {
-	err = yaml.Unmarshal(data, &vals)
+	err = yaml.UnmarshalStrict(data, &vals)
 	if len(vals) == 0 {
 		vals = Values{}
 	}
