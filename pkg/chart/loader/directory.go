@@ -49,20 +49,33 @@ func LoadDir(dir string) (*chart.Chart, error) {
 }
 
 func LoadDirWithOptions(dir string, options LoadOptions) (*chart.Chart, error) {
+	if options.LoadDirFunc != nil {
+		if res, err := options.LoadDirFunc(dir); err != nil {
+			return nil, fmt.Errorf("unable to load files from dir %s: %s", dir, err)
+		} else {
+			return LoadFiles(res, options)
+		}
+	}
+
+	if files, err := GetFilesFromLocalFilesystem(dir); err != nil {
+		return &chart.Chart{}, err
+	} else {
+		return LoadFiles(files, options)
+	}
+}
+
+func GetFilesFromLocalFilesystem(dir string) ([]*BufferedFile, error) {
 	topdir, err := filepath.Abs(dir)
 	if err != nil {
 		return nil, err
 	}
-
-	// Just used for errors.
-	c := &chart.Chart{}
 
 	rules := ignore.Empty()
 	ifile := filepath.Join(topdir, ignore.HelmIgnore)
 	if _, err := os.Stat(ifile); err == nil {
 		r, err := ignore.ParseFile(ifile)
 		if err != nil {
-			return c, err
+			return nil, err
 		}
 		rules = r
 	}
@@ -70,15 +83,6 @@ func LoadDirWithOptions(dir string, options LoadOptions) (*chart.Chart, error) {
 
 	files := []*BufferedFile{}
 	topdir += string(filepath.Separator)
-
-	if options.LoadDirFunc != nil {
-		if res, err := options.LoadDirFunc(dir); err != nil {
-			return nil, fmt.Errorf("unable to load files from dir %s: %s", dir, err)
-		} else {
-			files = res
-		}
-		return LoadFiles(files, options)
-	}
 
 	walk := func(name string, fi os.FileInfo, err error) error {
 		n := strings.TrimPrefix(name, topdir)
@@ -126,8 +130,8 @@ func LoadDirWithOptions(dir string, options LoadOptions) (*chart.Chart, error) {
 		return nil
 	}
 	if err = sympath.Walk(topdir, walk); err != nil {
-		return c, err
+		return nil, err
 	}
 
-	return LoadFiles(files, options)
+	return files, nil
 }
