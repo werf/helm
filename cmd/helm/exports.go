@@ -30,8 +30,14 @@ var (
 	NewTestCmd       = newReleaseTestCmd
 	NewVerifyCmd     = newVerifyCmd
 	NewVersionCmd    = newVersionCmd
-	NewChartCmd      = newChartCmd
-	NewShowCmd       = newShowCmd
+
+	NewChartCmd       = newChartCmd
+	NewChartSaveCmd   = newChartSaveCmd
+	NewChartPushCmd   = newChartPushCmd
+	NewChartPullCmd   = newChartPullCmd
+	NewChartExportCmd = newChartExportCmd
+
+	NewShowCmd = newShowCmd
 
 	// NOTE: following commands has additional options param and defined in corresponding command files
 	//NewTemplateCmd   = newTemplateCmd
