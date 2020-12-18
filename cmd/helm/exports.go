@@ -31,11 +31,11 @@ var (
 	NewVerifyCmd     = newVerifyCmd
 	NewVersionCmd    = newVersionCmd
 
-	NewChartCmd       = newChartCmd
-	NewChartSaveCmd   = newChartSaveCmd
-	NewChartPushCmd   = newChartPushCmd
-	NewChartPullCmd   = newChartPullCmd
-	NewChartExportCmd = newChartExportCmd
+	NewChartCmd     = newChartCmd
+	NewChartSaveCmd = newChartSaveCmd
+	NewChartPushCmd = newChartPushCmd
+	NewChartPullCmd = newChartPullCmd
+	//NewChartExportCmd = newChartExportCmd
 
 	NewShowCmd = newShowCmd
 
