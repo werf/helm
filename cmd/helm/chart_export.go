@@ -34,8 +34,15 @@ and check into source control if desired.
 `
 
 func newChartExportCmd(cfg *action.Configuration, out io.Writer) *cobra.Command {
-	client := action.NewChartExport(cfg)
+	return NewChartExportCmd(cfg, out, ChartExportCmdOptions{})
+}
 
+type ChartExportCmdOptions struct {
+	Destination string
+}
+
+func NewChartExportCmd(cfg *action.Configuration, out io.Writer, opts ChartExportCmdOptions) *cobra.Command {
+	client := action.NewChartExport(cfg)
 	cmd := &cobra.Command{
 		Use:    "export [ref]",
 		Short:  "export a chart to directory",
@@ -43,6 +50,12 @@ func newChartExportCmd(cfg *action.Configuration, out io.Writer) *cobra.Command 
 		Args:   require.MinimumNArgs(1),
 		Hidden: !FeatureGateOCI.IsEnabled(),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if opts.Destination != "" {
+				client.Destination = opts.Destination
+				ref := args[0]
+				return client.RunWithExactDestination(out, ref)
+			}
+
 			ref := args[0]
 			return client.Run(out, ref)
 		},
