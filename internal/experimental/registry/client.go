@@ -60,9 +60,10 @@ type (
 func getDefaultDockerConfigPath() string {
 	configDir := os.Getenv("DOCKER_CONFIG")
 	if configDir == "" {
-		configDir = filepath.Join(homedir.Get(), ".docker", config.ConfigFileName)
+		return filepath.Join(homedir.Get(), ".docker", config.ConfigFileName)
+	} else {
+		return filepath.Join(configDir, config.ConfigFileName)
 	}
-	return configDir
 }
 
 // NewClient returns a new registry client with config
