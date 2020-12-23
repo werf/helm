@@ -56,6 +56,19 @@ func SaveIntoDir(c *chart.Chart, dest string) error {
 		return err
 	}
 
+	if c.Metadata.APIVersion == chart.APIVersionV2 {
+		if c.Lock != nil {
+			ldata, err := yaml.Marshal(c.Lock)
+			if err != nil {
+				return err
+			}
+			filename := filepath.Join(outdir, "Chart.lock")
+			if err := writeFile(filename, ldata); err != nil {
+				return fmt.Errorf("error writing %q: %s", filename, err)
+			}
+		}
+	}
+
 	// Save values.yaml
 	for _, f := range c.Raw {
 		if f.Name == ValuesfileName {
