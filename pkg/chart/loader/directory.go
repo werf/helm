@@ -49,11 +49,11 @@ func LoadDir(dir string) (*chart.Chart, error) {
 }
 
 func LoadDirWithOptions(dir string, options LoadOptions) (*chart.Chart, error) {
-	if options.LoadDirFunc != nil {
-		if res, err := options.LoadDirFunc(dir); err != nil {
+	if options.ChartExtender != nil {
+		if isLoaded, files, err := options.ChartExtender.LoadDir(dir); err != nil {
 			return nil, fmt.Errorf("unable to load files from dir %s: %s", dir, err)
-		} else {
-			return LoadFiles(res, options)
+		} else if isLoaded {
+			return LoadFiles(convertChartExtenderFilesToBufferedFiles(files), options)
 		}
 	}
 
