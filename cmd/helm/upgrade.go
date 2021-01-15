@@ -170,16 +170,23 @@ func NewUpgradeCmd(cfg *action.Configuration, out io.Writer, opts UpgradeCmdOpti
 
 			var chartPath string
 			var err error
-			if loader.GlobalLoadOptions.LocateChartFunc != nil {
-				chartPath, err = loader.GlobalLoadOptions.LocateChartFunc(args[1], settings)
-			} else {
-				chartPath, err = client.ChartPathOptions.LocateChart(args[1], settings)
-			}
-			if err != nil {
+			if loader.GlobalLoadOptions.ChartExtender != nil {
+				if isLocated, path, err := loader.GlobalLoadOptions.ChartExtender.LocateChart(args[1], settings); err != nil {
+					return err
+				} else if isLocated {
+					chartPath = path
+				} else if path, err := client.ChartPathOptions.LocateChart(args[1], settings); err != nil {
+					return err
+				} else {
+					chartPath = path
+				}
+			} else if path, err := client.ChartPathOptions.LocateChart(args[1], settings); err != nil {
 				return err
+			} else {
+				chartPath = path
 			}
 
-			vals, err := valueOpts.MergeValues(getter.All(settings), loader.GlobalLoadOptions.ReadFileFunc)
+			vals, err := valueOpts.MergeValues(getter.All(settings), loader.GlobalLoadOptions.ChartExtender)
 			if err != nil {
 				return err
 			}
