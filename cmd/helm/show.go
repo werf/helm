@@ -178,14 +178,20 @@ func runShow(args []string, client *action.Show) (string, error) {
 	}
 
 	var cp string
-	var err error
-	if loader.GlobalLoadOptions.LocateChartFunc != nil {
-		cp, err = loader.GlobalLoadOptions.LocateChartFunc(args[0], settings)
-	} else {
-		cp, err = client.ChartPathOptions.LocateChart(args[0], settings)
-	}
-	if err != nil {
+	if loader.GlobalLoadOptions.ChartExtender != nil {
+		if isLocated, path, err := loader.GlobalLoadOptions.ChartExtender.LocateChart(args[0], settings); err != nil {
+			return "", err
+		} else if isLocated {
+			cp = path
+		} else if path, err := client.ChartPathOptions.LocateChart(args[0], settings); err != nil {
+			return "", err
+		} else {
+			cp = path
+		}
+	} else if path, err := client.ChartPathOptions.LocateChart(args[0], settings); err != nil {
 		return "", err
+	} else {
+		cp = path
 	}
 
 	return client.Run(cp)

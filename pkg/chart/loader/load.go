@@ -23,8 +23,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"helm.sh/helm/v3/pkg/cli"
-
 	"github.com/pkg/errors"
 	"sigs.k8s.io/yaml"
 
@@ -34,9 +32,26 @@ import (
 type LoadOptions struct {
 	ChartExtender               chart.ChartExtender
 	SubchartExtenderFactoryFunc func() chart.ChartExtender
-	LoadDirFunc                 func(dir string) ([]*BufferedFile, error)
-	LocateChartFunc             func(name string, settings *cli.EnvSettings) (string, error)
-	ReadFileFunc                func(filePath string) ([]byte, error)
+}
+
+func convertBufferedFilesForChartExtender(files []*BufferedFile) []*chart.ChartExtenderBufferedFile {
+	var res []*chart.ChartExtenderBufferedFile
+	for _, f := range files {
+		f1 := new(chart.ChartExtenderBufferedFile)
+		*f1 = chart.ChartExtenderBufferedFile(*f)
+		res = append(res, f1)
+	}
+	return res
+}
+
+func convertChartExtenderFilesToBufferedFiles(files []*chart.ChartExtenderBufferedFile) []*BufferedFile {
+	var res []*BufferedFile
+	for _, f := range files {
+		f1 := new(BufferedFile)
+		*f1 = BufferedFile(*f)
+		res = append(res, f1)
+	}
+	return res
 }
 
 var GlobalLoadOptions *LoadOptions
@@ -89,7 +104,7 @@ func LoadFiles(files []*BufferedFile, options LoadOptions) (*chart.Chart, error)
 	c := new(chart.Chart)
 	if options.ChartExtender != nil {
 		c.ChartExtender = options.ChartExtender
-		if err := c.ChartExtender.SetupChart(c); err != nil {
+		if err := c.ChartExtender.ChartCreated(c); err != nil {
 			return c, err
 		}
 	}
@@ -177,7 +192,7 @@ func LoadFiles(files []*BufferedFile, options LoadOptions) (*chart.Chart, error)
 	}
 
 	if c.ChartExtender != nil {
-		if err := c.ChartExtender.AfterLoad(); err != nil {
+		if err := c.ChartExtender.ChartLoaded(convertBufferedFilesForChartExtender(files)); err != nil {
 			return c, err
 		}
 	}
@@ -207,7 +222,6 @@ func LoadFiles(files []*BufferedFile, options LoadOptions) (*chart.Chart, error)
 				subchartOptions.ChartExtender = options.SubchartExtenderFactoryFunc()
 				subchartOptions.SubchartExtenderFactoryFunc = options.SubchartExtenderFactoryFunc
 			}
-			//FIXME: inherit other options!
 			sc, err = LoadArchiveWithOptions(bytes.NewBuffer(file.Data), subchartOptions)
 		default:
 			// We have to trim the prefix off of every file, and ignore any file
@@ -234,6 +248,12 @@ func LoadFiles(files []*BufferedFile, options LoadOptions) (*chart.Chart, error)
 			return c, errors.Wrapf(err, "error unpacking %s in %s", n, c.Name())
 		}
 		c.AddDependency(sc)
+	}
+
+	if c.ChartExtender != nil {
+		if err := c.ChartExtender.ChartDependenciesLoaded(); err != nil {
+			return c, err
+		}
 	}
 
 	return c, nil

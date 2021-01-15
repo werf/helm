@@ -22,6 +22,8 @@ import (
 	"os"
 	"strings"
 
+	"helm.sh/helm/v3/pkg/chart"
+
 	"github.com/pkg/errors"
 	"sigs.k8s.io/yaml"
 
@@ -38,7 +40,7 @@ type Options struct {
 
 // MergeValues merges values from files specified via -f/--values and directly
 // via --set, --set-string, or --set-file, marshaling them to YAML
-func (opts *Options) MergeValues(p getter.Providers, readFileFunc func(filePath string) ([]byte, error)) (map[string]interface{}, error) {
+func (opts *Options) MergeValues(p getter.Providers, extender chart.ChartExtender) (map[string]interface{}, error) {
 	base := map[string]interface{}{}
 
 	// User specified a values files via -f/--values
@@ -46,18 +48,20 @@ func (opts *Options) MergeValues(p getter.Providers, readFileFunc func(filePath 
 		currentMap := map[string]interface{}{}
 
 		var bytes []byte
-		if readFileFunc != nil {
-			if data, err := readFileFunc(filePath); err != nil {
+		if extender != nil {
+			if isRead, data, err := extender.ReadFile(filePath); err != nil {
+				return nil, err
+			} else if isRead {
+				bytes = data
+			} else if data, err := readFile(filePath, p); err != nil {
 				return nil, err
 			} else {
 				bytes = data
 			}
+		} else if data, err := readFile(filePath, p); err != nil {
+			return nil, err
 		} else {
-			if data, err := readFile(filePath, p); err != nil {
-				return nil, err
-			} else {
-				bytes = data
-			}
+			bytes = data
 		}
 
 		if err := yaml.Unmarshal(bytes, &currentMap); err != nil {
@@ -84,11 +88,14 @@ func (opts *Options) MergeValues(p getter.Providers, readFileFunc func(filePath 
 	// User specified a value via --set-file
 	for _, value := range opts.FileValues {
 		reader := func(rs []rune) (interface{}, error) {
-			if readFileFunc != nil {
-				return readFileFunc(string(rs))
-			} else {
-				return readFile(string(rs), p)
+			if extender != nil {
+				if isRead, data, err := extender.ReadFile(string(rs)); err != nil {
+					return nil, err
+				} else if isRead {
+					return data, err
+				}
 			}
+			return readFile(string(rs), p)
 		}
 		if err := strvals.ParseIntoFile(value, base, reader); err != nil {
 			return nil, errors.Wrap(err, "failed parsing --set-file data")
