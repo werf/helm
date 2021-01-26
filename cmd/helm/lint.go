@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package main
+package helm_v3
 
 import (
 	"fmt"
@@ -69,7 +69,7 @@ func newLintCmd(out io.Writer) *cobra.Command {
 			}
 
 			client.Namespace = settings.Namespace()
-			vals, err := valueOpts.MergeValues(getter.All(settings))
+			vals, err := valueOpts.MergeValues(getter.All(settings), nil)
 			if err != nil {
 				return err
 			}

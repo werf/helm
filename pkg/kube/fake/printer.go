@@ -55,7 +55,7 @@ func (p *PrintingKubeClient) Wait(resources kube.ResourceList, _ time.Duration) 
 // Delete implements KubeClient delete.
 //
 // It only prints out the content to be deleted.
-func (p *PrintingKubeClient) Delete(resources kube.ResourceList) (*kube.Result, []error) {
+func (p *PrintingKubeClient) Delete(resources kube.ResourceList, opts kube.DeleteOptions) (*kube.Result, []error) {
 	_, err := io.Copy(p.Out, bufferize(resources))
 	if err != nil {
 		return nil, []error{err}
