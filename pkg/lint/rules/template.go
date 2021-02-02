@@ -107,7 +107,7 @@ func Templates(linter *support.Linter, values []byte, namespace string, strict b
 		var yamlStruct K8sYamlStruct
 		// Even though K8sYamlStruct only defines Metadata namespace, an error in any other
 		// key will be raised as well
-		err := yaml.Unmarshal([]byte(renderedContent), &yamlStruct)
+		err := yaml.UnmarshalStrict([]byte(renderedContent), &yamlStruct)
 
 		validYaml := linter.RunLinterRule(support.ErrorSev, path, validateYamlContent(err))
 

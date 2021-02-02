@@ -202,7 +202,7 @@ metadata:
 
 		for _, m := range manifests {
 			var sh util.SimpleHead
-			err := yaml.Unmarshal([]byte(m), &sh)
+			err := yaml.UnmarshalStrict([]byte(m), &sh)
 			if err != nil {
 				// This is expected for manifests that are corrupt or empty.
 				t.Log(err)

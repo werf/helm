@@ -299,7 +299,7 @@ func loadIndex(data []byte) (*IndexFile, error) {
 		return i, err
 	}
 
-	if err := yaml.Unmarshal(data, i); err != nil {
+	if err := yaml.UnmarshalStrict(data, i); err != nil {
 		return i, err
 	}
 
