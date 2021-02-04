@@ -65,6 +65,7 @@ type Client struct {
 	kubeClient *kubernetes.Clientset
 
 	ResourcesWaiter ResourcesWaiter
+	Extender        ClientExtender
 }
 
 var addToScheme sync.Once
@@ -121,6 +122,12 @@ func (c *Client) IsReachable() error {
 
 // Create creates Kubernetes resources specified in the resource list.
 func (c *Client) Create(resources ResourceList) (*Result, error) {
+	if c.Extender != nil {
+		if err := perform(resources, c.Extender.BeforeCreateResource); err != nil {
+			return nil, err
+		}
+	}
+
 	c.Log("creating %d resource(s)", len(resources))
 	if err := perform(resources, createResource); err != nil {
 		return nil, err
@@ -219,6 +226,11 @@ func (c *Client) Update(original, target ResourceList, force bool) (*Result, err
 			// Append the created resource to the results, even if something fails
 			res.Created = append(res.Created, info)
 
+			if c.Extender != nil {
+				if err := c.Extender.BeforeCreateResource(info); err != nil {
+					return err
+				}
+			}
 			// Since the resource does not exist, create it.
 			if err := createResource(info); err != nil {
 				return errors.Wrap(err, "failed to create resource")
@@ -233,6 +245,12 @@ func (c *Client) Update(original, target ResourceList, force bool) (*Result, err
 		if originalInfo == nil {
 			kind := info.Mapping.GroupVersionKind.Kind
 			return errors.Errorf("no %s with the name %q found", kind, info.Name)
+		}
+
+		if c.Extender != nil {
+			if err := c.Extender.BeforeUpdateResource(info); err != nil {
+				return err
+			}
 		}
 
 		if err := updateResource(c, info, originalInfo.Object, force); err != nil {
@@ -267,6 +285,13 @@ func (c *Client) Update(original, target ResourceList, force bool) (*Result, err
 			c.Log("Skipping delete of %q due to annotation [%s=%s]", info.Name, ResourcePolicyAnno, KeepPolicy)
 			continue
 		}
+
+		if c.Extender != nil {
+			if err := c.Extender.BeforeDeleteResource(info); err != nil {
+				return nil, err
+			}
+		}
+
 		if err := deleteResource(info); err != nil {
 			c.Log("Failed to delete %q, err: %s", info.ObjectName(), err)
 			continue
@@ -285,6 +310,16 @@ func (c *Client) Delete(resources ResourceList, opts DeleteOptions) (*Result, []
 	res := &Result{}
 	mtx := sync.Mutex{}
 	err := perform(resources, func(info *resource.Info) error {
+		if c.Extender != nil {
+			if err := c.Extender.BeforeDeleteResource(info); err != nil {
+				mtx.Lock()
+				defer mtx.Unlock()
+				// Collect the error and continue on
+				errs = append(errs, err)
+				return nil
+			}
+		}
+
 		c.Log("Starting delete for %q %s", info.Name, info.Mapping.GroupVersionKind.Kind)
 		if err := c.skipIfNotFound(deleteResource(info)); err != nil {
 			mtx.Lock()
