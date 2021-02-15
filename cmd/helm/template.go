@@ -54,6 +54,9 @@ func newTemplateCmd(cfg *action.Configuration, out io.Writer) *cobra.Command {
 type TemplateCmdOptions struct {
 	PostRenderer postrender.PostRenderer
 	ValueOpts    *values.Options
+	Validate     *bool
+	IncludeCrds  *bool
+	IsUpgrade    *bool
 }
 
 func NewTemplateCmd(cfg *action.Configuration, out io.Writer, opts TemplateCmdOptions) (*cobra.Command, *action.Install) {
@@ -91,6 +94,15 @@ func NewTemplateCmd(cfg *action.Configuration, out io.Writer, opts TemplateCmdOp
 				valueOpts.StringValues = append(valueOpts.StringValues, opts.ValueOpts.StringValues...)
 				valueOpts.Values = append(valueOpts.Values, opts.ValueOpts.Values...)
 				valueOpts.FileValues = append(valueOpts.FileValues, opts.ValueOpts.FileValues...)
+			}
+			if opts.Validate != nil {
+				validate = *opts.Validate
+			}
+			if opts.IncludeCrds != nil {
+				includeCrds = *opts.IncludeCrds
+			}
+			if opts.IsUpgrade != nil {
+				client.IsUpgrade = *opts.IsUpgrade
 			}
 			client.DryRun = true
 			client.ReleaseName = "RELEASE-NAME"
