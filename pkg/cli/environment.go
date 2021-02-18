@@ -133,6 +133,10 @@ func (s *EnvSettings) Namespace() string {
 
 //RESTClientGetter gets the kubeconfig from EnvSettings
 func (s *EnvSettings) RESTClientGetter() genericclioptions.RESTClientGetter {
+	if s.config != nil {
+		return s.config
+	}
+
 	s.configOnce.Do(func() {
 		clientConfig := kube.GetConfig(s.KubeConfig, s.KubeContext, s.namespace)
 		if s.KubeToken != "" {

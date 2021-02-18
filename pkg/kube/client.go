@@ -59,6 +59,8 @@ type Client struct {
 	Log     func(string, ...interface{})
 	// Namespace allows to bypass the kubeconfig file for the choice of the namespace
 	Namespace string
+
+	ResourcesWaiter ResourcesWaiter
 }
 
 var addToScheme sync.Once
@@ -114,6 +116,10 @@ func (c *Client) Create(resources ResourceList) (*Result, error) {
 
 // Wait up to the given timeout for the specified resources to be ready
 func (c *Client) Wait(resources ResourceList, timeout time.Duration) error {
+	if c.ResourcesWaiter != nil {
+		return c.ResourcesWaiter.Wait(context.Background(), c.Namespace, resources, timeout)
+	}
+
 	cs, err := c.Factory.KubernetesClientSet()
 	if err != nil {
 		return err
@@ -250,7 +256,7 @@ func (c *Client) Update(original, target ResourceList, force bool) (*Result, err
 // attempt to delete all resources even if one or more fail and collect any
 // errors. All successfully deleted items will be returned in the `Deleted`
 // ResourceList that is part of the result.
-func (c *Client) Delete(resources ResourceList) (*Result, []error) {
+func (c *Client) Delete(resources ResourceList, opts DeleteOptions) (*Result, []error) {
 	var errs []error
 	res := &Result{}
 	mtx := sync.Mutex{}
@@ -279,6 +285,22 @@ func (c *Client) Delete(resources ResourceList) (*Result, []error) {
 	if errs != nil {
 		return nil, errs
 	}
+
+	if opts.Wait {
+		var specs []*ResourcesWaiterDeleteResourceSpec
+		for _, resource := range res.Deleted {
+			specs = append(specs, &ResourcesWaiterDeleteResourceSpec{
+				ResourceName:         resource.Name,
+				Namespace:            resource.Namespace,
+				GroupVersionResource: resource.Mapping.Resource,
+			})
+		}
+
+		if err := c.ResourcesWaiter.WaitUntilDeleted(context.Background(), specs, opts.WaitTimeout); err != nil {
+			return nil, []error{fmt.Errorf("waiting until resources are deleted failed: %s", err)}
+		}
+	}
+
 	return res, nil
 }
 
@@ -311,6 +333,10 @@ func (c *Client) watchTimeout(t time.Duration) func(*resource.Info) error {
 //
 // Handling for other kinds will be added as necessary.
 func (c *Client) WatchUntilReady(resources ResourceList, timeout time.Duration) error {
+	if c.ResourcesWaiter != nil {
+		return c.ResourcesWaiter.WatchUntilReady(context.Background(), c.Namespace, resources, timeout)
+	}
+
 	// For jobs, there's also the option to do poll c.Jobs(namespace).Get():
 	// https://github.com/adamreese/kubernetes/blob/master/test/e2e/job.go#L291-L300
 	return perform(resources, c.watchTimeout(timeout))

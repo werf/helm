@@ -27,7 +27,7 @@ import (
 
 func loadChart(t *testing.T, path string) *chart.Chart {
 	t.Helper()
-	c, err := loader.Load(path)
+	c, err := loader.Load(path, loader.LoadOptions{})
 	if err != nil {
 		t.Fatalf("failed to load testdata: %s", err)
 	}

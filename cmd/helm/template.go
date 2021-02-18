@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package main
+package helm_v3
 
 import (
 	"bytes"
@@ -24,6 +24,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"helm.sh/helm/v3/pkg/chart/loader"
 
 	"github.com/spf13/cobra"
 
@@ -44,6 +46,14 @@ faked locally. Additionally, none of the server-side testing of chart validity
 `
 
 func newTemplateCmd(cfg *action.Configuration, out io.Writer) *cobra.Command {
+	return NewTemplateCmd(cfg, out, TemplateCmdOptions{})
+}
+
+type TemplateCmdOptions struct {
+	LoadOptions loader.LoadOptions
+}
+
+func NewTemplateCmd(cfg *action.Configuration, out io.Writer, opts TemplateCmdOptions) *cobra.Command {
 	var validate bool
 	var includeCrds bool
 	client := action.NewInstall(cfg)
@@ -63,7 +73,7 @@ func newTemplateCmd(cfg *action.Configuration, out io.Writer) *cobra.Command {
 			client.ClientOnly = !validate
 			client.APIVersions = chartutil.VersionSet(extraAPIs)
 			client.IncludeCRDs = includeCrds
-			rel, err := runInstall(args, client, valueOpts, out)
+			rel, err := runInstall(args, client, valueOpts, out, opts.LoadOptions)
 
 			if err != nil && !settings.Debug {
 				if rel != nil {

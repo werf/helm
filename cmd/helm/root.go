@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package main // import "helm.sh/helm/v3/cmd/helm"
+package helm_v3 // import "helm.sh/helm/v3/cmd/helm"
 
 import (
 	"context"
@@ -70,7 +70,7 @@ By default, the default directories depend on the Operating System. The defaults
 
 func newRootCmd(actionConfig *action.Configuration, out io.Writer, args []string) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:                    "helm",
+		Use:                    "helm-v3",
 		Short:                  "The Helm package manager for Kubernetes.",
 		Long:                   globalUsage,
 		SilenceUsage:           true,
