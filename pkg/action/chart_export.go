@@ -61,3 +61,25 @@ func (a *ChartExport) Run(out io.Writer, ref string) error {
 	fmt.Fprintf(out, "Exported chart to %s/\n", d)
 	return nil
 }
+
+// Run executes the chart export operation
+func (a *ChartExport) RunWithExactDestination(out io.Writer, ref string) error {
+	r, err := registry.ParseReference(ref)
+	if err != nil {
+		return err
+	}
+
+	ch, err := a.cfg.RegistryClient.LoadChart(r)
+	if err != nil {
+		return err
+	}
+
+	// Save the chart to local destination directory
+	err = chartutil.SaveIntoDir(ch, a.Destination)
+	if err != nil {
+		return err
+	}
+
+	fmt.Fprintf(out, "Exported chart to %s/\n", a.Destination)
+	return nil
+}

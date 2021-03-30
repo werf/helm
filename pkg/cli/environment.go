@@ -40,7 +40,7 @@ const defaultMaxHistory = 10
 // EnvSettings describes all of the environment settings.
 type EnvSettings struct {
 	namespace string
-	config    *genericclioptions.ConfigFlags
+	config    genericclioptions.RESTClientGetter
 
 	// KubeConfig is the path to the kubeconfig file
 	KubeConfig string
@@ -174,6 +174,9 @@ func (s *EnvSettings) EnvVars() map[string]string {
 
 // Namespace gets the namespace from the configuration
 func (s *EnvSettings) Namespace() string {
+	if s.namespace != "" {
+		return s.namespace
+	}
 	if ns, _, err := s.config.ToRawKubeConfigLoader().Namespace(); err == nil {
 		return ns
 	}

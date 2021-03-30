@@ -17,11 +17,17 @@ limitations under the License.
 package kube
 
 import (
+	"context"
 	"io"
 	"time"
 
 	v1 "k8s.io/api/core/v1"
 )
+
+type DeleteOptions struct {
+	Wait        bool
+	WaitTimeout time.Duration
+}
 
 // Interface represents a client capable of communicating with the Kubernetes API.
 //
@@ -35,7 +41,8 @@ type Interface interface {
 	WaitWithJobs(resources ResourceList, timeout time.Duration) error
 
 	// Delete destroys one or more resources.
-	Delete(resources ResourceList) (*Result, []error)
+	Delete(resources ResourceList, opts DeleteOptions) (*Result, []error)
+	DeleteNamespace(ctx context.Context, namespace string, opts DeleteOptions) error
 
 	// Watch the resource in reader until it is "ready". This method
 	//
