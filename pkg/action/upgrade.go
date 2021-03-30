@@ -162,7 +162,7 @@ func (u *Upgrade) prepareUpgrade(name string, chart *chart.Chart, vals map[strin
 
 	// Concurrent `helm upgrade`s will either fail here with `errPending` or when creating the release with "already exists". This should act as a pessimistic lock.
 	if lastRelease.Info.Status.IsPending() {
-		return nil, nil, errPending
+		//return nil, nil, errPending
 	}
 
 	var currentRelease *release.Release
@@ -174,7 +174,7 @@ func (u *Upgrade) prepareUpgrade(name string, chart *chart.Chart, vals map[strin
 		currentRelease, err = u.cfg.Releases.Deployed(name)
 		if err != nil {
 			if errors.Is(err, driver.ErrNoDeployedReleases) &&
-				(lastRelease.Info.Status == release.StatusFailed || lastRelease.Info.Status == release.StatusSuperseded) {
+				(lastRelease.Info.Status == release.StatusFailed || lastRelease.Info.Status == release.StatusSuperseded || lastRelease.Info.Status == release.StatusPendingInstall || lastRelease.Info.Status == release.StatusPendingUpgrade || lastRelease.Info.Status == release.StatusPendingRollback) {
 				currentRelease = lastRelease
 			} else {
 				return nil, nil, err
@@ -373,7 +373,7 @@ func (u *Upgrade) failRelease(rel *release.Release, created kube.ResourceList, e
 	u.cfg.recordRelease(rel)
 	if u.CleanupOnFail && len(created) > 0 {
 		u.cfg.Log("Cleanup on fail set, cleaning up %d resources", len(created))
-		_, errs := u.cfg.KubeClient.Delete(created)
+		_, errs := u.cfg.KubeClient.Delete(created, kube.DeleteOptions{Wait: true, WaitTimeout: u.Timeout})
 		if errs != nil {
 			var errorList []string
 			for _, e := range errs {

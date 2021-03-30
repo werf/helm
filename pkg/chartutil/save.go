@@ -33,13 +33,17 @@ import (
 
 var headerBytes = []byte("+aHR0cHM6Ly95b3V0dS5iZS96OVV6MWljandyTQo=")
 
+func SaveDir(c *chart.Chart, dest string) error {
+	return SaveIntoDir(c, filepath.Join(dest, c.Name()))
+}
+
 // SaveDir saves a chart as files in a directory.
 //
 // This takes the chart name, and creates a new subdirectory inside of the given dest
 // directory, writing the chart's contents to that subdirectory.
-func SaveDir(c *chart.Chart, dest string) error {
+func SaveIntoDir(c *chart.Chart, dest string) error {
 	// Create the chart directory
-	outdir := filepath.Join(dest, c.Name())
+	outdir := dest
 	if fi, err := os.Stat(outdir); err == nil && !fi.IsDir() {
 		return errors.Errorf("file %s already exists and is not a directory", outdir)
 	}
@@ -50,6 +54,19 @@ func SaveDir(c *chart.Chart, dest string) error {
 	// Save the chart file.
 	if err := SaveChartfile(filepath.Join(outdir, ChartfileName), c.Metadata); err != nil {
 		return err
+	}
+
+	if c.Metadata.APIVersion == chart.APIVersionV2 {
+		if c.Lock != nil {
+			ldata, err := yaml.Marshal(c.Lock)
+			if err != nil {
+				return err
+			}
+			filename := filepath.Join(outdir, "Chart.lock")
+			if err := writeFile(filename, ldata); err != nil {
+				return fmt.Errorf("error writing %q: %s", filename, err)
+			}
+		}
 	}
 
 	// Save values.yaml

@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package main
+package helm_v3
 
 import (
 	"fmt"
@@ -71,7 +71,7 @@ func newPackageCmd(out io.Writer) *cobra.Command {
 			client.RepositoryConfig = settings.RepositoryConfig
 			client.RepositoryCache = settings.RepositoryCache
 			p := getter.All(settings)
-			vals, err := valueOpts.MergeValues(p)
+			vals, err := valueOpts.MergeValues(p, nil)
 			if err != nil {
 				return err
 			}
