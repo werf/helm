@@ -53,3 +53,11 @@ func NewRegistryClient(debug bool, out io.Writer) (*registry.Client, error) {
 		registry.ClientOptWriter(out),
 	)
 }
+
+type RegistryClientHandle struct {
+	RegistryClient *registry.Client
+}
+
+func NewRegistryClientHandle(registryClient *registry.Client) *RegistryClientHandle {
+	return &RegistryClientHandle{RegistryClient: registryClient}
+}
