@@ -67,3 +67,9 @@ func ClientOptCredentialsFile(credentialsFile string) ClientOption {
 		client.credentialsFile = credentialsFile
 	}
 }
+
+func ClientOptInsecure(insecure bool) ClientOption {
+	return func(client *Client) {
+		client.insecure = insecure
+	}
+}

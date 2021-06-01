@@ -19,6 +19,7 @@ package registry // import "helm.sh/helm/v3/internal/experimental/registry"
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -49,7 +50,8 @@ const (
 type (
 	// Client works with OCI-compliant registries and local Helm chart cache
 	Client struct {
-		debug bool
+		debug    bool
+		insecure bool
 		// path to repository config file e.g. ~/.docker/config.json
 		credentialsFile string
 		out             io.Writer
@@ -90,7 +92,16 @@ func NewClient(opts ...ClientOption) (*Client, error) {
 		}
 	}
 	if client.resolver == nil {
-		resolver, err := client.authorizer.Resolver(context.Background(), http.DefaultClient, false)
+		httpClient := http.DefaultClient
+		if client.insecure {
+			httpClient.Transport = &http.Transport{
+				TLSClientConfig: &tls.Config{
+					InsecureSkipVerify: true,
+				},
+			}
+		}
+
+		resolver, err := client.authorizer.Resolver(context.Background(), httpClient, client.insecure)
 		if err != nil {
 			return nil, err
 		}
@@ -191,7 +202,6 @@ func (c *Client) PullChart(ref *Reference) (*bytes.Buffer, error) {
 		switch layer.MediaType {
 		case HelmChartContentLayerMediaType:
 			contentLayer = &layer
-
 		}
 	}
 
