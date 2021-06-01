@@ -22,6 +22,8 @@ import (
 	"strings"
 	"time"
 
+	"helm.sh/helm/v3/pkg/kube"
+
 	"github.com/pkg/errors"
 
 	"helm.sh/helm/v3/pkg/chartutil"
@@ -176,7 +178,7 @@ func (r *Rollback) performRollback(currentRelease, targetRelease *release.Releas
 		r.cfg.recordRelease(targetRelease)
 		if r.CleanupOnFail {
 			r.cfg.Log("Cleanup on fail set, cleaning up %d resources", len(results.Created))
-			_, errs := r.cfg.KubeClient.Delete(results.Created)
+			_, errs := r.cfg.KubeClient.Delete(results.Created, kube.DeleteOptions{Wait: true, WaitTimeout: r.Timeout})
 			if errs != nil {
 				var errorList []string
 				for _, e := range errs {

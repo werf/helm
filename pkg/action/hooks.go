@@ -18,10 +18,12 @@ package action
 import (
 	"bytes"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/pkg/errors"
 
+	"helm.sh/helm/v3/pkg/kube"
 	"helm.sh/helm/v3/pkg/release"
 	helmtime "helm.sh/helm/v3/pkg/time"
 )
@@ -131,10 +133,28 @@ func (cfg *Configuration) deleteHookByPolicy(h *release.Hook, policy release.Hoo
 		if err != nil {
 			return errors.Wrapf(err, "unable to build kubernetes object for deleting hook %s", h.Path)
 		}
-		_, errs := cfg.KubeClient.Delete(resources)
+		_, errs := cfg.KubeClient.Delete(resources, kube.DeleteOptions{Wait: true})
 		if len(errs) > 0 {
 			return errors.New(joinErrors(errs))
 		}
+	}
+	return nil
+}
+
+func (cfg *Configuration) deleteHooks(hooks []*release.Hook) error {
+	var manifests []string
+	for _, h := range hooks {
+		manifests = append(manifests, h.Manifest)
+	}
+
+	manifestsStr := strings.Join(manifests, "\n---\n")
+	resources, err := cfg.KubeClient.Build(bytes.NewBufferString(manifestsStr), false)
+	if err != nil {
+		return errors.Wrapf(err, "unable to build kubernetes objects for deleting hooks")
+	}
+	_, errs := cfg.KubeClient.Delete(resources, kube.DeleteOptions{Wait: true})
+	if len(errs) > 0 {
+		return errors.New(joinErrors(errs))
 	}
 	return nil
 }

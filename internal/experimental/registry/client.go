@@ -19,11 +19,17 @@ package registry // import "helm.sh/helm/v3/internal/experimental/registry"
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"net/http"
+	"os"
+	"path/filepath"
 	"sort"
+
+	"github.com/docker/cli/cli/config"
+	"github.com/docker/docker/pkg/homedir"
 
 	auth "github.com/deislabs/oras/pkg/auth/docker"
 	"github.com/deislabs/oras/pkg/content"
@@ -44,7 +50,8 @@ const (
 type (
 	// Client works with OCI-compliant registries and local Helm chart cache
 	Client struct {
-		debug bool
+		debug    bool
+		insecure bool
 		// path to repository config file e.g. ~/.docker/config.json
 		credentialsFile string
 		out             io.Writer
@@ -53,6 +60,15 @@ type (
 		cache           *Cache
 	}
 )
+
+func getDefaultDockerConfigPath() string {
+	configDir := os.Getenv("DOCKER_CONFIG")
+	if configDir == "" {
+		return filepath.Join(homedir.Get(), ".docker", config.ConfigFileName)
+	} else {
+		return filepath.Join(configDir, config.ConfigFileName)
+	}
+}
 
 // NewClient returns a new registry client with config
 func NewClient(opts ...ClientOption) (*Client, error) {
@@ -67,7 +83,7 @@ func NewClient(opts ...ClientOption) (*Client, error) {
 		client.credentialsFile = helmpath.CachePath("registry", CredentialsFileBasename)
 	}
 	if client.authorizer == nil {
-		authClient, err := auth.NewClient(client.credentialsFile)
+		authClient, err := auth.NewClient(client.credentialsFile, getDefaultDockerConfigPath())
 		if err != nil {
 			return nil, err
 		}
@@ -76,7 +92,16 @@ func NewClient(opts ...ClientOption) (*Client, error) {
 		}
 	}
 	if client.resolver == nil {
-		resolver, err := client.authorizer.Resolver(context.Background(), http.DefaultClient, false)
+		httpClient := http.DefaultClient
+		if client.insecure {
+			httpClient.Transport = &http.Transport{
+				TLSClientConfig: &tls.Config{
+					InsecureSkipVerify: true,
+				},
+			}
+		}
+
+		resolver, err := client.authorizer.Resolver(context.Background(), httpClient, client.insecure)
 		if err != nil {
 			return nil, err
 		}
@@ -177,7 +202,6 @@ func (c *Client) PullChart(ref *Reference) (*bytes.Buffer, error) {
 		switch layer.MediaType {
 		case HelmChartContentLayerMediaType:
 			contentLayer = &layer
-
 		}
 	}
 
