@@ -120,6 +120,20 @@ func (c *Client) IsReachable() error {
 	return nil
 }
 
+func (c *Client) CreateIfNotExists(resources ResourceList) (*Result, error) {
+	if c.Extender != nil {
+		if err := perform(resources, c.Extender.BeforeCreateResource); err != nil {
+			return nil, err
+		}
+	}
+
+	c.Log("creating %d resource(s)", len(resources))
+	if err := perform(resources, createResourceIfNotExists); err != nil {
+		return nil, err
+	}
+	return &Result{Created: resources}, nil
+}
+
 // Create creates Kubernetes resources specified in the resource list.
 func (c *Client) Create(resources ResourceList) (*Result, error) {
 	if c.Extender != nil {
@@ -443,6 +457,17 @@ func createResource(info *resource.Info) error {
 		return err
 	}
 	return info.Refresh(obj, true)
+}
+
+func createResourceIfNotExists(info *resource.Info) error {
+	_, err := resource.NewHelper(info.Client, info.Mapping).Get(info.Namespace, info.Name)
+	if apierrors.IsNotFound(err) {
+		return createResource(info)
+	} else if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func deleteResource(info *resource.Info) error {
