@@ -35,6 +35,8 @@ type DeleteOptions struct {
 type Interface interface {
 	// Create creates one or more resources.
 	Create(resources ResourceList) (*Result, error)
+	// Create creates one or more resources with resource existance check.
+	CreateIfNotExists(resources ResourceList) (*Result, error)
 
 	Wait(resources ResourceList, timeout time.Duration) error
 
