@@ -545,7 +545,7 @@ func updateResource(c *Client, target *resource.Info, currentObj runtime.Object,
 	} else {
 		patch, patchType, err := createPatch(target, currentObj)
 		if err != nil {
-			return errors.Wrap(err, "failed to create patch")
+			return errors.Wrap(err, fmt.Sprintf("failed to create patch for %s/%s", kind, target.Name))
 		}
 
 		if patch == nil || string(patch) == "{}" {
