@@ -63,6 +63,9 @@ type Client struct {
 	Namespace string
 
 	kubeClient *kubernetes.Clientset
+
+	ResourcesWaiter ResourcesWaiter
+	Extender        ClientExtender
 }
 
 var addToScheme sync.Once
@@ -117,8 +120,28 @@ func (c *Client) IsReachable() error {
 	return nil
 }
 
+func (c *Client) CreateIfNotExists(resources ResourceList) (*Result, error) {
+	if c.Extender != nil {
+		if err := perform(resources, c.Extender.BeforeCreateResource); err != nil {
+			return nil, err
+		}
+	}
+
+	c.Log("creating %d resource(s)", len(resources))
+	if err := perform(resources, createResourceIfNotExists); err != nil {
+		return nil, err
+	}
+	return &Result{Created: resources}, nil
+}
+
 // Create creates Kubernetes resources specified in the resource list.
 func (c *Client) Create(resources ResourceList) (*Result, error) {
+	if c.Extender != nil {
+		if err := perform(resources, c.Extender.BeforeCreateResource); err != nil {
+			return nil, err
+		}
+	}
+
 	c.Log("creating %d resource(s)", len(resources))
 	if err := perform(resources, createResource); err != nil {
 		return nil, err
@@ -128,6 +151,10 @@ func (c *Client) Create(resources ResourceList) (*Result, error) {
 
 // Wait up to the given timeout for the specified resources to be ready
 func (c *Client) Wait(resources ResourceList, timeout time.Duration) error {
+	if c.ResourcesWaiter != nil {
+		return c.ResourcesWaiter.Wait(context.Background(), c.Namespace, resources, timeout)
+	}
+
 	cs, err := c.getKubeClient()
 	if err != nil {
 		return err
@@ -215,6 +242,11 @@ func (c *Client) Update(original, target ResourceList, force bool) (*Result, err
 			// Append the created resource to the results, even if something fails
 			res.Created = append(res.Created, info)
 
+			if c.Extender != nil {
+				if err := c.Extender.BeforeCreateResource(info); err != nil {
+					return err
+				}
+			}
 			// Since the resource does not exist, create it.
 			if err := createResource(info); err != nil {
 				return errors.Wrap(err, "failed to create resource")
@@ -229,6 +261,12 @@ func (c *Client) Update(original, target ResourceList, force bool) (*Result, err
 		if originalInfo == nil {
 			kind := info.Mapping.GroupVersionKind.Kind
 			return errors.Errorf("no %s with the name %q found", kind, info.Name)
+		}
+
+		if c.Extender != nil {
+			if err := c.Extender.BeforeUpdateResource(info); err != nil {
+				return err
+			}
 		}
 
 		if err := updateResource(c, info, originalInfo.Object, force); err != nil {
@@ -263,6 +301,13 @@ func (c *Client) Update(original, target ResourceList, force bool) (*Result, err
 			c.Log("Skipping delete of %q due to annotation [%s=%s]", info.Name, ResourcePolicyAnno, KeepPolicy)
 			continue
 		}
+
+		if c.Extender != nil {
+			if err := c.Extender.BeforeDeleteResource(info); err != nil {
+				return nil, err
+			}
+		}
+
 		if err := deleteResource(info); err != nil {
 			c.Log("Failed to delete %q, err: %s", info.ObjectName(), err)
 			continue
@@ -276,11 +321,21 @@ func (c *Client) Update(original, target ResourceList, force bool) (*Result, err
 // attempt to delete all resources even if one or more fail and collect any
 // errors. All successfully deleted items will be returned in the `Deleted`
 // ResourceList that is part of the result.
-func (c *Client) Delete(resources ResourceList) (*Result, []error) {
+func (c *Client) Delete(resources ResourceList, opts DeleteOptions) (*Result, []error) {
 	var errs []error
 	res := &Result{}
 	mtx := sync.Mutex{}
 	err := perform(resources, func(info *resource.Info) error {
+		if c.Extender != nil {
+			if err := c.Extender.BeforeDeleteResource(info); err != nil {
+				mtx.Lock()
+				defer mtx.Unlock()
+				// Collect the error and continue on
+				errs = append(errs, err)
+				return nil
+			}
+		}
+
 		c.Log("Starting delete for %q %s", info.Name, info.Mapping.GroupVersionKind.Kind)
 		if err := c.skipIfNotFound(deleteResource(info)); err != nil {
 			mtx.Lock()
@@ -305,6 +360,22 @@ func (c *Client) Delete(resources ResourceList) (*Result, []error) {
 	if errs != nil {
 		return nil, errs
 	}
+
+	if opts.Wait {
+		var specs []*ResourcesWaiterDeleteResourceSpec
+		for _, resource := range res.Deleted {
+			specs = append(specs, &ResourcesWaiterDeleteResourceSpec{
+				ResourceName:         resource.Name,
+				Namespace:            resource.Namespace,
+				GroupVersionResource: resource.Mapping.Resource,
+			})
+		}
+
+		if err := c.ResourcesWaiter.WaitUntilDeleted(context.Background(), specs, opts.WaitTimeout); err != nil {
+			return nil, []error{fmt.Errorf("waiting until resources are deleted failed: %s", err)}
+		}
+	}
+
 	return res, nil
 }
 
@@ -337,6 +408,10 @@ func (c *Client) watchTimeout(t time.Duration) func(*resource.Info) error {
 //
 // Handling for other kinds will be added as necessary.
 func (c *Client) WatchUntilReady(resources ResourceList, timeout time.Duration) error {
+	if c.ResourcesWaiter != nil {
+		return c.ResourcesWaiter.WatchUntilReady(context.Background(), c.Namespace, resources, timeout)
+	}
+
 	// For jobs, there's also the option to do poll c.Jobs(namespace).Get():
 	// https://github.com/adamreese/kubernetes/blob/master/test/e2e/job.go#L291-L300
 	return perform(resources, c.watchTimeout(timeout))
@@ -382,6 +457,17 @@ func createResource(info *resource.Info) error {
 		return err
 	}
 	return info.Refresh(obj, true)
+}
+
+func createResourceIfNotExists(info *resource.Info) error {
+	_, err := resource.NewHelper(info.Client, info.Mapping).Get(info.Namespace, info.Name)
+	if apierrors.IsNotFound(err) {
+		return createResource(info)
+	} else if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func deleteResource(info *resource.Info) error {
@@ -459,7 +545,7 @@ func updateResource(c *Client, target *resource.Info, currentObj runtime.Object,
 	} else {
 		patch, patchType, err := createPatch(target, currentObj)
 		if err != nil {
-			return errors.Wrap(err, "failed to create patch")
+			return errors.Wrap(err, fmt.Sprintf("failed to create patch for %s/%s", kind, target.Name))
 		}
 
 		if patch == nil || string(patch) == "{}" {

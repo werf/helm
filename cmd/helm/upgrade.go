@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package main
+package helm_v3
 
 import (
 	"fmt"
@@ -31,6 +31,7 @@ import (
 	"helm.sh/helm/v3/pkg/cli/output"
 	"helm.sh/helm/v3/pkg/cli/values"
 	"helm.sh/helm/v3/pkg/getter"
+	"helm.sh/helm/v3/pkg/postrender"
 	"helm.sh/helm/v3/pkg/storage/driver"
 )
 
@@ -62,6 +63,21 @@ set for a key called 'foo', the 'newbar' value would take precedence:
 `
 
 func newUpgradeCmd(cfg *action.Configuration, out io.Writer) *cobra.Command {
+	cmd, _ := NewUpgradeCmd(cfg, out, UpgradeCmdOptions{})
+	return cmd
+}
+
+type UpgradeCmdOptions struct {
+	PostRenderer    postrender.PostRenderer
+	ValueOpts       *values.Options
+	CreateNamespace *bool
+	Install         *bool
+	Wait            *bool
+	Atomic          *bool
+	Timeout         *time.Duration
+}
+
+func NewUpgradeCmd(cfg *action.Configuration, out io.Writer, opts UpgradeCmdOptions) (*cobra.Command, *action.Upgrade) {
 	client := action.NewUpgrade(cfg)
 	valueOpts := &values.Options{}
 	var outfmt output.Format
@@ -82,6 +98,31 @@ func newUpgradeCmd(cfg *action.Configuration, out io.Writer) *cobra.Command {
 			return nil, cobra.ShellCompDirectiveNoFileComp
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if opts.PostRenderer != nil {
+				client.PostRenderer = opts.PostRenderer
+			}
+			if opts.ValueOpts != nil {
+				valueOpts.ValueFiles = append(valueOpts.ValueFiles, opts.ValueOpts.ValueFiles...)
+				valueOpts.StringValues = append(valueOpts.StringValues, opts.ValueOpts.StringValues...)
+				valueOpts.Values = append(valueOpts.Values, opts.ValueOpts.Values...)
+				valueOpts.FileValues = append(valueOpts.FileValues, opts.ValueOpts.FileValues...)
+			}
+			if opts.CreateNamespace != nil {
+				createNamespace = *opts.CreateNamespace
+			}
+			if opts.Install != nil {
+				client.Install = *opts.Install
+			}
+			if opts.Wait != nil {
+				client.Wait = *opts.Wait
+			}
+			if opts.Atomic != nil {
+				client.Atomic = *opts.Atomic
+			}
+			if opts.Timeout != nil {
+				client.Timeout = *opts.Timeout
+			}
+
 			client.Namespace = settings.Namespace()
 
 			// Fixes #7002 - Support reading values from STDIN for `upgrade` command
@@ -127,12 +168,25 @@ func newUpgradeCmd(cfg *action.Configuration, out io.Writer) *cobra.Command {
 				client.Version = ">0.0.0-0"
 			}
 
-			chartPath, err := client.ChartPathOptions.LocateChart(args[1], settings)
-			if err != nil {
+			var chartPath string
+			var err error
+			if loader.GlobalLoadOptions.ChartExtender != nil {
+				if isLocated, path, err := loader.GlobalLoadOptions.ChartExtender.LocateChart(args[1], settings); err != nil {
+					return err
+				} else if isLocated {
+					chartPath = path
+				} else if path, err := client.ChartPathOptions.LocateChart(args[1], settings); err != nil {
+					return err
+				} else {
+					chartPath = path
+				}
+			} else if path, err := client.ChartPathOptions.LocateChart(args[1], settings); err != nil {
 				return err
+			} else {
+				chartPath = path
 			}
 
-			vals, err := valueOpts.MergeValues(getter.All(settings))
+			vals, err := valueOpts.MergeValues(getter.All(settings), loader.GlobalLoadOptions.ChartExtender)
 			if err != nil {
 				return err
 			}
@@ -202,5 +256,5 @@ func newUpgradeCmd(cfg *action.Configuration, out io.Writer) *cobra.Command {
 		log.Fatal(err)
 	}
 
-	return cmd
+	return cmd, client
 }

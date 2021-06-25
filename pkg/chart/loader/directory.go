@@ -37,28 +37,45 @@ var utf8bom = []byte{0xEF, 0xBB, 0xBF}
 type DirLoader string
 
 // Load loads the chart
-func (l DirLoader) Load() (*chart.Chart, error) {
-	return LoadDir(string(l))
+func (l DirLoader) Load(options LoadOptions) (*chart.Chart, error) {
+	return LoadDirWithOptions(string(l), options)
 }
 
 // LoadDir loads from a directory.
 //
 // This loads charts only from directories.
 func LoadDir(dir string) (*chart.Chart, error) {
+	return LoadDirWithOptions(dir, *GlobalLoadOptions)
+}
+
+func LoadDirWithOptions(dir string, options LoadOptions) (*chart.Chart, error) {
+	if options.ChartExtender != nil {
+		if isLoaded, files, err := options.ChartExtender.LoadDir(dir); err != nil {
+			return nil, fmt.Errorf("unable to load files from dir %s: %s", dir, err)
+		} else if isLoaded {
+			return LoadFiles(convertChartExtenderFilesToBufferedFiles(files), options)
+		}
+	}
+
+	if files, err := GetFilesFromLocalFilesystem(dir); err != nil {
+		return &chart.Chart{}, err
+	} else {
+		return LoadFiles(files, options)
+	}
+}
+
+func GetFilesFromLocalFilesystem(dir string) ([]*BufferedFile, error) {
 	topdir, err := filepath.Abs(dir)
 	if err != nil {
 		return nil, err
 	}
-
-	// Just used for errors.
-	c := &chart.Chart{}
 
 	rules := ignore.Empty()
 	ifile := filepath.Join(topdir, ignore.HelmIgnore)
 	if _, err := os.Stat(ifile); err == nil {
 		r, err := ignore.ParseFile(ifile)
 		if err != nil {
-			return c, err
+			return nil, err
 		}
 		rules = r
 	}
@@ -113,8 +130,8 @@ func LoadDir(dir string) (*chart.Chart, error) {
 		return nil
 	}
 	if err = sympath.Walk(topdir, walk); err != nil {
-		return c, err
+		return nil, err
 	}
 
-	return LoadFiles(files)
+	return files, nil
 }

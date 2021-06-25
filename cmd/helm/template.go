@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package main
+package helm_v3
 
 import (
 	"bytes"
@@ -27,14 +27,14 @@ import (
 	"sort"
 	"strings"
 
-	"helm.sh/helm/v3/pkg/release"
-
 	"github.com/spf13/cobra"
 
 	"helm.sh/helm/v3/cmd/helm/require"
 	"helm.sh/helm/v3/pkg/action"
 	"helm.sh/helm/v3/pkg/chartutil"
 	"helm.sh/helm/v3/pkg/cli/values"
+	"helm.sh/helm/v3/pkg/postrender"
+	"helm.sh/helm/v3/pkg/release"
 	"helm.sh/helm/v3/pkg/releaseutil"
 )
 
@@ -47,6 +47,19 @@ faked locally. Additionally, none of the server-side testing of chart validity
 `
 
 func newTemplateCmd(cfg *action.Configuration, out io.Writer) *cobra.Command {
+	cmd, _ := NewTemplateCmd(cfg, out, TemplateCmdOptions{})
+	return cmd
+}
+
+type TemplateCmdOptions struct {
+	PostRenderer postrender.PostRenderer
+	ValueOpts    *values.Options
+	Validate     *bool
+	IncludeCrds  *bool
+	IsUpgrade    *bool
+}
+
+func NewTemplateCmd(cfg *action.Configuration, out io.Writer, opts TemplateCmdOptions) (*cobra.Command, *action.Install) {
 	var validate bool
 	var includeCrds bool
 	var skipTests bool
@@ -73,6 +86,24 @@ func newTemplateCmd(cfg *action.Configuration, out io.Writer) *cobra.Command {
 				client.KubeVersion = parsedKubeVersion
 			}
 
+			if opts.PostRenderer != nil {
+				client.PostRenderer = opts.PostRenderer
+			}
+			if opts.ValueOpts != nil {
+				valueOpts.ValueFiles = append(valueOpts.ValueFiles, opts.ValueOpts.ValueFiles...)
+				valueOpts.StringValues = append(valueOpts.StringValues, opts.ValueOpts.StringValues...)
+				valueOpts.Values = append(valueOpts.Values, opts.ValueOpts.Values...)
+				valueOpts.FileValues = append(valueOpts.FileValues, opts.ValueOpts.FileValues...)
+			}
+			if opts.Validate != nil {
+				validate = *opts.Validate
+			}
+			if opts.IncludeCrds != nil {
+				includeCrds = *opts.IncludeCrds
+			}
+			if opts.IsUpgrade != nil {
+				client.IsUpgrade = *opts.IsUpgrade
+			}
 			client.DryRun = true
 			client.ReleaseName = "RELEASE-NAME"
 			client.Replace = true // Skip the name check
@@ -185,7 +216,7 @@ func newTemplateCmd(cfg *action.Configuration, out io.Writer) *cobra.Command {
 	f.BoolVar(&client.UseReleaseName, "release-name", false, "use release name in the output-dir path.")
 	bindPostRenderFlag(cmd, &client.PostRenderer)
 
-	return cmd
+	return cmd, client
 }
 
 func isTestHook(h *release.Hook) bool {

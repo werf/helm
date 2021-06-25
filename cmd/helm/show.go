@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package main
+package helm_v3
 
 import (
 	"fmt"
@@ -25,6 +25,7 @@ import (
 
 	"helm.sh/helm/v3/cmd/helm/require"
 	"helm.sh/helm/v3/pkg/action"
+	"helm.sh/helm/v3/pkg/chart/loader"
 )
 
 const showDesc = `
@@ -176,9 +177,22 @@ func runShow(args []string, client *action.Show) (string, error) {
 		client.Version = ">0.0.0-0"
 	}
 
-	cp, err := client.ChartPathOptions.LocateChart(args[0], settings)
-	if err != nil {
+	var cp string
+	if loader.GlobalLoadOptions.ChartExtender != nil {
+		if isLocated, path, err := loader.GlobalLoadOptions.ChartExtender.LocateChart(args[0], settings); err != nil {
+			return "", err
+		} else if isLocated {
+			cp = path
+		} else if path, err := client.ChartPathOptions.LocateChart(args[0], settings); err != nil {
+			return "", err
+		} else {
+			cp = path
+		}
+	} else if path, err := client.ChartPathOptions.LocateChart(args[0], settings); err != nil {
 		return "", err
+	} else {
+		cp = path
 	}
+
 	return client.Run(cp)
 }

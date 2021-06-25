@@ -47,6 +47,11 @@ func (p *PrintingKubeClient) Create(resources kube.ResourceList) (*kube.Result, 
 	return &kube.Result{Created: resources}, nil
 }
 
+// Create prints the values of what would be created with a real KubeClient.
+func (p *PrintingKubeClient) CreateIfNotExists(resources kube.ResourceList) (*kube.Result, error) {
+	return p.Create(resources)
+}
+
 func (p *PrintingKubeClient) Wait(resources kube.ResourceList, _ time.Duration) error {
 	_, err := io.Copy(p.Out, bufferize(resources))
 	return err
@@ -60,7 +65,7 @@ func (p *PrintingKubeClient) WaitWithJobs(resources kube.ResourceList, _ time.Du
 // Delete implements KubeClient delete.
 //
 // It only prints out the content to be deleted.
-func (p *PrintingKubeClient) Delete(resources kube.ResourceList) (*kube.Result, []error) {
+func (p *PrintingKubeClient) Delete(resources kube.ResourceList, opts kube.DeleteOptions) (*kube.Result, []error) {
 	_, err := io.Copy(p.Out, bufferize(resources))
 	if err != nil {
 		return nil, []error{err}
